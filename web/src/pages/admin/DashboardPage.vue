@@ -47,7 +47,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    overview.value = await api<Overview>('/api/admin/overview', { signal: requests.signal })
+    overview.value = await api<Overview>('/admin/overview', { signal: requests.signal })
   } catch (reason) {
     if (!requests.signal.aborted) error.value = reason instanceof Error ? reason.message : '读取工作台失败'
   } finally {

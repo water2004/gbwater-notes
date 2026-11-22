@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { api, apiUrl } from '@/lib/api'
 import type { NativeDocument } from '@/types/content'
 
 export interface AdminNote {
@@ -33,28 +33,28 @@ export interface RevisionRecord {
 type NewNote = Pick<AdminNote, 'title' | 'category' | 'course' | 'slug' | 'courseSlug' | 'order' | 'draft'>
 
 export async function listAdminNotes() {
-  const data = await api<{ notes: AdminNote[] }>('/api/admin/notes')
+  const data = await api<{ notes: AdminNote[] }>('/admin/notes')
   return data.notes
 }
 
 export function readAdminNote(id: string) {
-  return api<AdminDocument>(`/api/admin/note?${new URLSearchParams({ id })}`)
+  return api<AdminDocument>(`/admin/note?${new URLSearchParams({ id })}`)
 }
 
 export function readNotePreview(id: string) {
-  return api<NativeDocument>(`/api/admin/note/native?${new URLSearchParams({ id })}`)
+  return api<NativeDocument>(`/admin/note/native?${new URLSearchParams({ id })}`)
 }
 
 export function createAdminNote(note: NewNote, body: string) {
-  return api<AdminDocument>('/api/admin/notes', { method: 'POST', json: { note, body } })
+  return api<AdminDocument>('/admin/notes', { method: 'POST', json: { note, body } })
 }
 
 export function updateAdminNote(id: string, content: string, expectedRevision: string) {
-  return api<AdminDocument>('/api/admin/note', { method: 'PUT', json: { id, content, expectedRevision } })
+  return api<AdminDocument>('/admin/note', { method: 'PUT', json: { id, content, expectedRevision } })
 }
 
 export async function setAdminNoteDraft(note: AdminNote, draft: boolean) {
-  const result = await api<{ note: AdminNote }>('/api/admin/note', {
+  const result = await api<{ note: AdminNote }>('/admin/note', {
     method: 'PATCH',
     json: { id: note.id, expectedRevision: note.revision, draft },
   })
@@ -62,7 +62,7 @@ export async function setAdminNoteDraft(note: AdminNote, draft: boolean) {
 }
 
 export function noteDownloadURL(id: string) {
-  return `/api/admin/note/download?${new URLSearchParams({ id })}`
+  return apiUrl(`/admin/note/download?${new URLSearchParams({ id })}`)
 }
 
 export function adminEditorPath(id: string) {
@@ -70,11 +70,11 @@ export function adminEditorPath(id: string) {
 }
 
 export async function listNoteRevisions(noteId: string, signal: AbortSignal) {
-  const data = await api<{ revisions: RevisionRecord[] }>(`/api/admin/revisions?${new URLSearchParams({ noteId })}`, { signal })
+  const data = await api<{ revisions: RevisionRecord[] }>(`/admin/revisions?${new URLSearchParams({ noteId })}`, { signal })
   return data.revisions
 }
 
 export async function readNoteRevision(noteId: string, revisionId: number, signal: AbortSignal) {
-  const data = await api<{ content: string }>(`/api/admin/revisions/${revisionId}?${new URLSearchParams({ noteId })}`, { signal })
+  const data = await api<{ content: string }>(`/admin/revisions/${revisionId}?${new URLSearchParams({ noteId })}`, { signal })
   return data.content
 }

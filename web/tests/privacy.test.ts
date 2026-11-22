@@ -18,7 +18,7 @@ describe('公开产物不包含内容源', () => {
     const source = read('../src/pages/admin/EditorPage.vue')
     expect(source).not.toContain('generated/notes/**/*.json')
     expect(source).toContain('readNotePreview(target)')
-    expect(read('../src/lib/adminNotes.ts')).toContain('/api/admin/note/native')
+    expect(read('../src/lib/adminNotes.ts')).toContain('api<NativeDocument>(`/admin/note/native?')
   })
 
   it('笔记片段由 Go/Folia 生成，Vite 不再渲染 Markdown', () => {

@@ -1,14 +1,14 @@
 # 碧山秋云 · GBwater Notes
 
-面向课程笔记的静态站和 Markdown 工作台。后台 Go 服务调用 Folia 生成正文、公式和 Mermaid SVG，Vite SSG 生成页面，nginx 托管静态文件并把 `/api/` 转发至 Go。
+面向课程笔记的静态站和 Markdown 工作台。后台 Go 服务调用 Folia 生成正文、公式和 Mermaid SVG，Vite SSG 生成页面，nginx 托管静态文件并转发配置的 API 路径。
 
 笔记支持分学科和课程浏览、搜索、划线和便签。管理员可直接编辑 Markdown、对比历史版本、管理单篇配图及发布站点。正文更新时只替换实际变化的发布文件。
 
 ## Linux 部署
 
-部署方式沿用 Element Skin 的结构。Compose 运行 Go API、PostgreSQL 和 Meilisearch，宿主机 nginx 读取 `./frontend`。镜像包含 Linux Folia、Node 和初次安装用的空站前端。修改内容后在后台点击「构建并发布」。
+部署方式沿用 Element Skin 的结构。Compose 运行 Go API、PostgreSQL 和 Meilisearch，宿主机 nginx 读取 `./frontend`。新版镜像在启动时按部署路径安装登录和管理后台。公开页在后台点击「构建并发布」后增量更新。
 
-本版本镜像为 `ghcr.io/water2004/gbwater-notes:1.0.0`。参见 [Linux 部署与运维](docs/deployment.md)。
+当前已发布镜像为 `ghcr.io/water2004/gbwater-notes:1.0.0`。 [1.0.0 部署说明](https://github.com/water2004/gbwater-notes/blob/v1.0.0/docs/deployment.md) · [新版部署配置](docs/deployment.md)
 
 ## 本地开发
 
@@ -43,7 +43,7 @@ npm --prefix web test
 npm --prefix web run test:build
 ```
 
-GitHub Actions 在提交和 PR 中验证 Go、Vue、增量构建与 Linux 镜像。在 `main` 上推送 `vX.Y.Z` 标签后，测试通过的镜像发布到 GHCR，GitHub Release 记录镜像摘要。
+在 GitHub 发布指向 `main` 提交的正式 `vX.Y.Z` Release 后，Actions 才运行测试和镜像构建，通过后发布到 GHCR，并把镜像摘要记录在 Release。平时可用上面的命令在本地检查。
 
 业务数据存放在部署目录。发布仓库包含应用源码、部署示例和测试夹具。部署方自行维护笔记、图床与数据库。
 

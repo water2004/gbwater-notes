@@ -1,6 +1,6 @@
 # HTTP API
 
-所有接口以 `/api` 开头。图床上传使用图片的原始字节，其余带请求体的接口使用 `Content-Type: application/json` 并只发送一个 JSON 值。认证使用 HttpOnly 会话 Cookie。写请求携带 `Origin` 时校验主机名，忽略端口。
+表中路径使用 Go 服务内部的 `/api/`。浏览器和外部客户端应使用部署时的 `GBWATER_API_BASE_PATH`，默认 `/mypdf/api/`，例如 `/mypdf/api/health`。图床上传使用图片的原始字节，其余带请求体的接口使用 `Content-Type: application/json` 并只发送一个 JSON 值。认证使用 HttpOnly 会话 Cookie。写请求携带 `Origin` 时校验主机名，忽略端口。
 
 业务错误返回 HTTP 状态码和以下 JSON：
 

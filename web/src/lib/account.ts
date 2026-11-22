@@ -9,7 +9,7 @@ export interface RegisterInput {
 }
 
 export async function login(identifier: string, password: string) {
-  const data = await api<{ user: AccountUser }>('/api/auth/login', {
+  const data = await api<{ user: AccountUser }>('/auth/login', {
     method: 'POST',
     json: { identifier, password },
   })
@@ -18,7 +18,7 @@ export async function login(identifier: string, password: string) {
 }
 
 export async function register(input: RegisterInput) {
-  const data = await api<{ user: AccountUser }>('/api/auth/register', {
+  const data = await api<{ user: AccountUser }>('/auth/register', {
     method: 'POST',
     json: input,
   })
@@ -28,35 +28,35 @@ export async function register(input: RegisterInput) {
 
 export async function logout() {
   try {
-    await api('/api/auth/logout', { method: 'POST' })
+    await api('/auth/logout', { method: 'POST' })
   } finally {
     setSessionUser(null)
   }
 }
 
 export async function sendEmailCode(email: string, purpose: 'register' | 'reset') {
-  return api<{ ok: boolean; cooldownSeconds: number }>('/api/auth/email-code', {
+  return api<{ ok: boolean; cooldownSeconds: number }>('/auth/email-code', {
     method: 'POST',
     json: { email, purpose },
   })
 }
 
 export async function forgotPassword(email: string, code: string, password: string) {
-  return api<{ ok: boolean }>('/api/auth/password/forgot', {
+  return api<{ ok: boolean }>('/auth/password/forgot', {
     method: 'POST',
     json: { email, code, password },
   })
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {
-  return api<{ ok: boolean }>('/api/auth/password/change', {
+  return api<{ ok: boolean }>('/auth/password/change', {
     method: 'POST',
     json: { currentPassword, newPassword },
   })
 }
 
 export async function renameAccount(username: string) {
-  const data = await api<{ user: AccountUser }>('/api/auth/profile', {
+  const data = await api<{ user: AccountUser }>('/auth/profile', {
     method: 'PATCH',
     json: { username },
   })

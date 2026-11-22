@@ -21,7 +21,7 @@ export interface BuildRecord {
 export const buildStateLabel = { idle: '尚未发布', running: '正在发布', success: '发布成功', failed: '发布失败' }
 
 export async function listBuildHistory(signal: AbortSignal) {
-  const data = await api<{ builds: BuildRecord[] }>('/api/admin/build/history', { signal })
+  const data = await api<{ builds: BuildRecord[] }>('/admin/build/history', { signal })
   return data.builds
 }
 
@@ -43,7 +43,7 @@ export function provideAdminPublish() {
   async function refresh() {
     clearTimeout(timer)
     try {
-      const data = await api<BuildStatus>('/api/admin/build', { signal: requests.signal })
+      const data = await api<BuildStatus>('/admin/build', { signal: requests.signal })
       if (requests.signal.aborted) return
       status.value = data
       error.value = ''
@@ -62,7 +62,7 @@ export function provideAdminPublish() {
     starting.value = true
     error.value = ''
     try {
-      status.value = await api<BuildStatus>('/api/admin/build', { method: 'POST', signal: requests.signal })
+      status.value = await api<BuildStatus>('/admin/build', { method: 'POST', signal: requests.signal })
       schedule()
     } catch (reason) {
       if (requests.signal.aborted) return

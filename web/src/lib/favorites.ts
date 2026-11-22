@@ -22,7 +22,7 @@ function saveLocal() {
 }
 
 async function pullServer() {
-  const data = await api<{ favorites: { noteId: string }[] }>('/api/me/reading')
+  const data = await api<{ favorites: { noteId: string }[] }>('/me/reading')
   favorites.value = new Set(data.favorites.map(item => item.noteId))
   saveLocal()
 }
@@ -37,7 +37,7 @@ async function mergeLocal() {
   }
   localStorage.setItem('gbwater-local-owner-favorites', session.user.id)
   if (favorites.value.size) {
-    await api('/api/me/favorites/merge', { method: 'POST', json: { noteIds: [...favorites.value] } })
+    await api('/me/favorites/merge', { method: 'POST', json: { noteIds: [...favorites.value] } })
   }
   await pullServer()
 }
@@ -56,9 +56,9 @@ export function useFavorites() {
     if (!session.user) return added
     try {
       if (added) {
-        await api('/api/me/favorites', { method: 'PUT', json: { noteId } })
+        await api('/me/favorites', { method: 'PUT', json: { noteId } })
       } else {
-        await api(`/api/me/favorites?noteId=${encodeURIComponent(noteId)}`, { method: 'DELETE' })
+        await api(`/me/favorites?noteId=${encodeURIComponent(noteId)}`, { method: 'DELETE' })
       }
     } catch (_) {
       /* 同步失败不阻塞阅读，下次登录会重新合并。 */

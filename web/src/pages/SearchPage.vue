@@ -50,7 +50,7 @@ async function runSearch() {
   controller = new AbortController()
   const { signal } = controller
   try {
-    const data = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(term)}`, { signal })
+    const data = await api<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(term)}`, { signal })
     if (signal.aborted) return
     results.value = data.results
     cache.set(term, data.results)

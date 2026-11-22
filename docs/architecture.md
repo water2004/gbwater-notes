@@ -5,12 +5,12 @@
 站点是「静态页面 + Go API」：
 
 - **构建期**：Linux Go 服务调用 Folia 生成正文 HTML、公式、Mermaid SVG 和目录，然后由 Vite SSG 生成静态页面。
-- **运行期**：nginx 托管静态页面，Go 提供 `/api/*`，包括账号、标注和搜索。
+- **运行期**：nginx 托管静态页面，将公开 API 前缀代理到 Go 的 `/api/*`，包括账号、标注和搜索。
 
 ```
 浏览器 ──静态页/预渲染 HTML── nginx
    │
-   └── /api/* ── Go（PostgreSQL + Meilisearch）
+   └── /mypdf/api/* ── Go（PostgreSQL + Meilisearch）
 ```
 
 ## 目录边界
@@ -105,7 +105,7 @@
 ## 部署路径
 
 设置 `GBWATER_BASE_PATH` 后在后台构建。该路径用于正文里的资源地址、前端路由、
-静态托管和邮件链接。nginx 托管生成的 `web/dist` 并将 `/api/` 转发给 Go。
+静态托管和邮件链接。nginx 托管生成的 `web/dist` 并将 `GBWATER_API_BASE_PATH` 对应的路径转发给 Go。容器启动时安装登录和后台页面，公开静态页由管理员在后台发布。
 
 ## 已知边界
 

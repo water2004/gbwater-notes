@@ -25,11 +25,12 @@ describe('Markdown workbench', () => {
   it('inserts a publishable image link and resolves it to an authenticated editor preview', () => {
     const id = 'math/课程 (一)/标题/配图.png'
     const markdown = imageMarkdown({ id, name: '配图.png', modified: '', bytes: 0 })
-    expect(markdown).toContain('/mypdf/content-assets/math/%E8%AF%BE%E7%A8%8B%20%28%E4%B8%80%29/')
+    expect(markdown).toContain('/content-assets/math/%E8%AF%BE%E7%A8%8B%20%28%E4%B8%80%29/')
     const source = markdown.slice(markdown.indexOf('](') + 2, -1)
     const preview = editorImageURL(source, '/custom/')
-    expect(preview).toContain('/api/admin/asset/content?')
+    expect(preview).toContain(`${import.meta.env.VITE_API_BASE_PATH}admin/asset/content?`)
     expect(new URL(preview!, 'http://test').searchParams.get('id')).toBe(id)
+    expect(editorImageURL(`/mypdf${source}`, '/custom/')).toBe(preview)
     expect(editorImageURL('https://external.example/image.png', '/custom/')).toBeUndefined()
   })
 

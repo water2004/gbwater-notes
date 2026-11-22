@@ -40,7 +40,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const stored = await api<unknown>('/api/admin/site-settings')
+    const stored = await api<unknown>('/admin/site-settings')
     settings.value = normalizeSiteSettings(stored)
     savedSnapshot.value = JSON.stringify(settings.value)
   } catch (reason) { error.value = reason instanceof Error ? reason.message : '读取站点设置失败' } finally { loading.value = false }
@@ -78,7 +78,7 @@ async function save() {
   if (!validate()) return
   saving.value = true
   try {
-    const saved = await api<unknown>('/api/admin/site-settings', { method: 'PUT', json: settings.value })
+    const saved = await api<unknown>('/admin/site-settings', { method: 'PUT', json: settings.value })
     settings.value = normalizeSiteSettings(saved)
     savedSnapshot.value = JSON.stringify(settings.value)
     message.value = '设置已保存。公开静态页面会在下次构建后使用新文案。'

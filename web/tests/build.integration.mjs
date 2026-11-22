@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { deploymentPaths, isDynamicPath } from '../scripts/deployment.ts'
+import { prepareFrontend } from '../scripts/prepare-frontend.mjs'
 
 const repo = fileURLToPath(new URL('../../', import.meta.url))
 const fixture = mkdtempSync(join(tmpdir(), 'gbwater-build-qa-'))
@@ -43,8 +45,8 @@ for (const note of [first, sibling, unrelated]) {
 }
 writeArticle({ slug: 'unlisted' }, '<p>不在公开目录里</p>')
 writeFileSync(catalog, JSON.stringify([first, sibling, unrelated]))
-function build(expected = 0) {
-  const result = spawnSync(process.execPath, ['scripts/build.mjs'], {cwd: web, encoding:'utf8', env: {...process.env, GBWATER_BASE_PATH:'/regression/'}})
+function build(expected = 0, env = {}) {
+  const result = spawnSync(process.execPath, ['scripts/build.mjs'], {cwd: web, encoding:'utf8', env: {...process.env, GBWATER_BASE_PATH:'/regression/', ...env}})
   assert.equal(result.status, expected, result.stdout + result.stderr)
   const summary = result.stdout.split(/\r?\n/).filter(line => /\[(?:pages|publish)\]/.test(line)).join(' ')
   console.log(summary || result.stderr.split(/\r?\n/).find(line => line.startsWith('Error:')))
@@ -108,6 +110,36 @@ try {
   rmSync(body(first))
   build(1)
   assert.deepEqual(fileTimes(), beforeFailure)
+
+  writeArticle(first, '<p>恢复的正文</p>')
+  const existing = join(fixture, 'published')
+  const starter = join(fixture, 'starter')
+  renameSync(dist, existing)
+  build(0, { GBWATER_DYNAMIC_FRONTEND: 'template' })
+  renameSync(dist, starter)
+  assert(!existsSync(join(starter, 'index.html')))
+  assert(!existsSync(join(starter, 'notes')))
+  renameSync(existing, dist)
+  const initialPaths = deploymentPaths({ GBWATER_BASE_PATH: '/regression/' })
+  const movedPaths = deploymentPaths({ GBWATER_BASE_PATH: '/moved/', GBWATER_API_BASE_PATH: '/notes-api/' })
+  prepareFrontend(starter, dist, initialPaths)
+  assert.match(readFileSync(join(dist, 'login/index.html'), 'utf8'), /\/regression\/admin-assets\//)
+  const afterStart = fileTimes()
+  prepareFrontend(starter, dist, initialPaths)
+  assert.deepEqual(fileTimes(), afterStart)
+  prepareFrontend(starter, dist, movedPaths)
+  assert.match(readFileSync(join(dist, 'admin/editor/index.html'), 'utf8'), /\/moved\/admin-assets\//)
+  const afterMove = fileTimes()
+  const publicTimes = times => Object.fromEntries(Object.entries(times).filter(([name]) => !isDynamicPath(name)))
+  assert.deepEqual(publicTimes(afterMove), publicTimes(beforeFailure))
+  const adminCode = readdirSync(join(dist, 'admin-assets'))
+    .filter(name => name.endsWith('.js')).map(name => readFileSync(join(dist, 'admin-assets', name), 'utf8')).join('\n')
+  assert.match(adminCode, /\/notes-api\//)
+  assert.doesNotMatch(adminCode, /GBWATER_(?:API_)?BASE_PATH_PLACEHOLDER/)
+  build(0, { GBWATER_DYNAMIC_FRONTEND: 'installed', GBWATER_BASE_PATH: '/moved/', GBWATER_API_BASE_PATH: '/notes-api/' })
+  assert.match(readFileSync(join(dist, 'notes/first/index.html'), 'utf8'), /\/moved\/library\/math/)
+  const dynamicTimes = times => Object.fromEntries(Object.entries(times).filter(([name]) => isDynamicPath(name)))
+  assert.deepEqual(dynamicTimes(fileTimes()), dynamicTimes(afterMove))
   console.log('Incremental static build verified.')
 } finally {
   // 已知路径由上面的 mkdtempSync 创建，先移除指向真实依赖目录的链接。

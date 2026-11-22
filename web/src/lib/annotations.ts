@@ -65,11 +65,11 @@ export interface AnchorInput {
 }
 
 export async function loadAnnotations(noteId: string, signal: AbortSignal): Promise<NoteAnnotations> {
-  return api<NoteAnnotations>(`/api/me/annotations?noteId=${encodeURIComponent(noteId)}`, { signal })
+  return api<NoteAnnotations>(`/me/annotations?noteId=${encodeURIComponent(noteId)}`, { signal })
 }
 
 export async function createHighlight(noteId: string, anchor: AnchorInput, color: HighlightColor, comment: string, revision: string) {
-  const data = await api<{ highlight: Highlight }>('/api/me/highlights', {
+  const data = await api<{ highlight: Highlight }>('/me/highlights', {
     method: 'POST',
     json: { noteId, ...anchor, color, comment, revision },
   })
@@ -77,11 +77,11 @@ export async function createHighlight(noteId: string, anchor: AnchorInput, color
 }
 
 export async function deleteHighlight(id: string) {
-  await api(`/api/me/highlights/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await api(`/me/highlights/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function createBookmark(noteId: string, anchor: AnchorInput, label: string, position: number, revision: string) {
-  const data = await api<{ bookmark: Bookmark }>('/api/me/bookmarks', {
+  const data = await api<{ bookmark: Bookmark }>('/me/bookmarks', {
     method: 'POST',
     json: { noteId, ...anchor, label, position, revision },
   })
@@ -89,7 +89,7 @@ export async function createBookmark(noteId: string, anchor: AnchorInput, label:
 }
 
 export async function updateBookmark(id: string, patch: Partial<Pick<Bookmark, 'label' | 'revision' | 'quote' | 'prefix' | 'suffix' | 'heading' | 'position'>>) {
-  const data = await api<{ bookmark: Bookmark }>(`/api/me/bookmarks/${encodeURIComponent(id)}`, {
+  const data = await api<{ bookmark: Bookmark }>(`/me/bookmarks/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     json: patch,
   })
@@ -97,11 +97,11 @@ export async function updateBookmark(id: string, patch: Partial<Pick<Bookmark, '
 }
 
 export async function deleteBookmark(id: string) {
-  await api(`/api/me/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await api(`/me/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function saveMemo(noteId: string, body: string) {
-  const data = await api<{ memo: Memo }>('/api/me/memo', { method: 'PUT', json: { noteId, body } })
+  const data = await api<{ memo: Memo }>('/me/memo', { method: 'PUT', json: { noteId, body } })
   return data.memo
 }
 
@@ -115,7 +115,7 @@ export interface AnnotationSummary {
 }
 
 export async function createStickyNote(noteId: string, body: string, color: HighlightColor, anchor?: AnchorInput, revision = '') {
-  const data = await api<{ stickyNote: StickyNote }>('/api/me/sticky-notes', {
+  const data = await api<{ stickyNote: StickyNote }>('/me/sticky-notes', {
     method: 'POST',
     json: { noteId, body, color, ...(anchor || {}), revision },
   })
@@ -123,7 +123,7 @@ export async function createStickyNote(noteId: string, body: string, color: High
 }
 
 export async function updateStickyNote(id: string, patch: { body?: string; color?: HighlightColor }) {
-  const data = await api<{ stickyNote: StickyNote }>(`/api/me/sticky-notes/${encodeURIComponent(id)}`, {
+  const data = await api<{ stickyNote: StickyNote }>(`/me/sticky-notes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     json: patch,
   })
@@ -131,11 +131,11 @@ export async function updateStickyNote(id: string, patch: { body?: string; color
 }
 
 export async function deleteStickyNote(id: string) {
-  await api(`/api/me/sticky-notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await api(`/me/sticky-notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function loadAnnotationSummary() {
-  return api<AnnotationSummary>('/api/me/annotations/summary')
+  return api<AnnotationSummary>('/me/annotations/summary')
 }
 
 interface TextNode {

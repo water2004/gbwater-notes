@@ -4,15 +4,6 @@ set -euo pipefail
 mkdir -p data/db data/meilisearch
 sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
 docker compose config --quiet
-docker compose run --rm --no-deps api export-frontend
-test -s frontend/index.html
-test -s frontend/admin/editor/index.html
-grep -qF '/mypdf/assets/' frontend/index.html
-test "$(cat frontend/catalog.json)" = '[]'
-if docker compose run --rm --no-deps api export-frontend; then
-  echo 'Export unexpectedly accepted a populated directory.' >&2
-  exit 1
-fi
 
 sudo install -d -m 0755 -o 10001 -g 10001 content/math/Smoke
 sudo tee content/math/Smoke/Smoke.md >/dev/null <<'NOTE'
@@ -39,6 +30,11 @@ GBWATER_DOCKER_GATEWAY=$(docker inspect -f '{{range .NetworkSettings.Networks}}{
 test -n "$GBWATER_DOCKER_GATEWAY"
 export GBWATER_DOCKER_GATEWAY
 docker compose up -d --wait --wait-timeout 150
+test -s frontend/login/index.html
+test -s frontend/admin/editor/index.html
+grep -qF '/mypdf/admin-assets/' frontend/login/index.html
+grep -rqF '/mypdf/api/' frontend/admin-assets
+test ! -e frontend/index.html
 sudo test -s data/db/18/docker/PG_VERSION
 test -d data/meilisearch/data.ms
 curl --fail --silent --show-error http://127.0.0.1:8080/api/health

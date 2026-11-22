@@ -44,7 +44,7 @@ function applyServer(records: ProgressRecord[]) {
 }
 
 async function pullServer() {
-  const data = await api<{ progress: ProgressRecord[]; favorites: { noteId: string; createdAt: string }[] }>('/api/me/reading')
+  const data = await api<{ progress: ProgressRecord[]; favorites: { noteId: string; createdAt: string }[] }>('/me/reading')
   applyServer(data.progress)
 }
 
@@ -69,7 +69,7 @@ async function mergeLocal() {
   adoptOwner(session.user.id)
   const records = localRecords()
   if (records.length) {
-    await api('/api/me/reading/merge', { method: 'POST', json: { progress: records } })
+    await api('/me/reading/merge', { method: 'POST', json: { progress: records } })
   }
   await pullServer()
 }
@@ -77,7 +77,7 @@ async function mergeLocal() {
 async function syncProgress(noteId: string, payload: { completed?: boolean; read?: boolean }) {
   if (!session.user) return
   try {
-    await api('/api/me/reading', { method: 'PUT', json: { noteId, ...payload } })
+    await api('/me/reading', { method: 'PUT', json: { noteId, ...payload } })
   } catch (_) {
     /* 离线时保留本地状态，下次登录合并。 */
   }

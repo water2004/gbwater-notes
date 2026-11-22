@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { api, apiUrl } from '@/lib/api'
 
 export interface PopularNote {
   id: string
@@ -15,7 +15,7 @@ export interface PopularNote {
 const attempted = new Set<string>()
 
 export async function getPopularNotes(limit = 6) {
-  const response = await api<{ notes: PopularNote[] }>(`/api/public/popular-notes?limit=${limit}`, { cache: 'no-cache' })
+  const response = await api<{ notes: PopularNote[] }>(`/public/popular-notes?limit=${limit}`, { cache: 'no-cache' })
   return response.notes
 }
 
@@ -28,11 +28,12 @@ export function trackNoteView(noteId: string) {
   attempted.add(noteId)
   try { sessionStorage.setItem(key, '1') } catch (_) { /* Storage can be unavailable in private contexts. */ }
   const body = JSON.stringify({ id: noteId })
+  const url = apiUrl('/public/note-view')
   if (navigator.sendBeacon) {
-    const accepted = navigator.sendBeacon('/api/public/note-view', new Blob([body], { type: 'application/json' }))
+    const accepted = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
     if (accepted) return
   }
-  fetch('/api/public/note-view', {
+  fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
     credentials: 'same-origin', keepalive: true,
   }).then(response => {

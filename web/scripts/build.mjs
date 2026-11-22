@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 import { build } from 'vite-ssg/node'
 import { catalogCategories, parseCatalog, readCatalogSource, staticRoutes } from './static-content.ts'
+import { dynamicEntries, isDynamicPath } from './deployment.ts'
 import { prerenderedArticle } from '../src/lib/initial-article.ts'
 
 const root = realpathSync.native(fileURLToPath(new URL('../', import.meta.url)))
@@ -16,6 +17,8 @@ const publicDir = join(root, 'public')
 const cacheName = '.build-cache.json'
 const stagePrefix = '.dist-build-'
 const cacheFile = join(dist, cacheName)
+const dynamicMode = process.env.GBWATER_DYNAMIC_FRONTEND
+const preserve = dynamicMode === 'installed' ? [...dynamicEntries] : []
 
 function hash(value) {
   return createHash('sha256').update(value).digest('hex')
@@ -106,6 +109,8 @@ async function buildPages(stage) {
         ...inputs.map(name => [name, fileHash(join(root, name))]),
       ]))
       return [...new Set(staticRoutes(paths, catalog, Object.keys(categories)))].filter(route => {
+        if (dynamicMode === 'template' && !isDynamicPath(route)) return false
+        if (dynamicMode === 'installed' && isDynamicPath(route)) return false
         const filename = join(route.slice(1), 'index.html').replaceAll('\\', '/')
         const dependsOnCatalog = route === '/' || route.startsWith('/library') || route.startsWith('/courses/')
         const input = hash(JSON.stringify([shared, articles.get(route)?.fingerprint ?? (dependsOnCatalog ? catalogHash : '')]))
@@ -133,7 +138,7 @@ async function buildPages(stage) {
     throw new Error('构建期间笔记产物发生变化，请等 Go 渲染结束后重试。')
   }
   // Vite 的客户端构建会写出 HTML 壳，首页沿用上次产物时应丢弃它。
-  if (reused.has('index.html')) rmSync(join(stage, 'index.html'))
+  if (!pages.has('index.html') || reused.has('index.html')) rmSync(join(stage, 'index.html'), { force: true })
   rmSync(join(stage, '.vite/ssr-manifest.json'), { force: true })
   for (const [filename, page] of pages) {
     if (!reused.has(filename) && !rendered.has(page.route)) {
@@ -159,12 +164,12 @@ function publish(stage, { pages, reused }) {
   const staged = files(stage)
   const expected = new Set([...staged, ...reused])
   const publicFiles = [
-    ...files(publicDir, new Set(['content-assets', 'note-content'])),
+    ...files(publicDir, new Set(['content-assets', 'note-content', ...preserve])),
     ...files(join(publicDir, 'content-assets')).map(name => `content-assets/${name}`),
   ].filter(name => !expected.has(name))
   publicFiles.forEach(name => expected.add(name))
   const transient = readdirSync(dist).filter(name => name.startsWith(stagePrefix))
-  const obsolete = files(dist, new Set([cacheName, ...transient])).filter(name => !expected.has(name))
+  const obsolete = files(dist, new Set([cacheName, ...transient, ...preserve])).filter(name => !expected.has(name))
   const updates = staged.filter(name => fileHash(join(stage, name)) !== fileHash(join(dist, name)))
   const publicUpdates = publicFiles.filter(name => fileHash(join(publicDir, name)) !== fileHash(join(dist, name)))
   // 增量复制静态资源，避免每次构建都复制所有图片和公式 SVG。

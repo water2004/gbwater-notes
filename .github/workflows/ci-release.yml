@@ -1,21 +1,25 @@
-name: CI and release
+name: Release
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-    tags: ['v*.*.*']
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release tag
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git merge-base --is-ancestor HEAD origin/main
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -50,13 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: recursive
-      - name: Verify release tag
-        if: github.ref_type == 'tag'
-        run: |
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          git merge-base --is-ancestor HEAD origin/main
       - uses: docker/setup-buildx-action@v3
       - name: Build Linux container
         uses: docker/build-push-action@v6
@@ -80,7 +78,6 @@ jobs:
         if: always()
         run: docker compose down
       - name: Publish tested image
-        if: github.ref_type == 'tag'
         id: publish
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,23 +94,18 @@ jobs:
           printf 'ref=%s@%s\n' "$image" "$digest" >> "$GITHUB_OUTPUT"
 
   release:
-    if: github.ref_type == 'tag'
     needs: [test, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Publish GitHub Release
+      - name: Record image digest in the published release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_REF: ${{ needs.image.outputs.ref }}
         run: |
-          cp RELEASE.md "$RUNNER_TEMP/release.md"
-          printf '\n构建镜像摘要 `%s`\n' "$IMAGE_REF" >> "$RUNNER_TEMP/release.md"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release.md"
-          else
-            gh release create "$GITHUB_REF_NAME" --verify-tag \
-              --title "GBwater Notes $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release.md"
-          fi
+          notes="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' \
+            | sed '/^构建镜像摘要 `ghcr\.io\//d')"
+          printf '%s\n\n构建镜像摘要 `%s`\n' "$notes" "$IMAGE_REF" > "$RUNNER_TEMP/release.md"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/release.md"

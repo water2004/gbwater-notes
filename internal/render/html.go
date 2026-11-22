@@ -205,6 +205,8 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 	page = strings.ReplaceAll(page, `src="/mypdf/`, `src="`+base)
 	page = strings.ReplaceAll(page, `href="/mypdf/`, `href="`+base)
 	page = strings.ReplaceAll(page, `](/mypdf/`, `](`+base)
+	page = strings.ReplaceAll(page, `src="/content-assets/`, `src="`+base+`content-assets/`)
+	page = strings.ReplaceAll(page, `href="/content-assets/`, `href="`+base+`content-assets/`)
 	if injectionErr != nil {
 		return "", injectionErr
 	}

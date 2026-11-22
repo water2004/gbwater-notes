@@ -41,7 +41,7 @@ export function refreshSession() {
   if (typeof window === 'undefined') return
   if (pendingSession) return pendingSession
   const version = sessionVersion
-  pendingSession = api<{ user: AccountUser | null }>('/api/auth/session')
+  pendingSession = api<{ user: AccountUser | null }>('/auth/session')
     .then(data => data.user, () => null)
     .then(user => {
       if (version === sessionVersion) setSessionUser(user)

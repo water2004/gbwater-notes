@@ -88,7 +88,10 @@ export function createMarkdownRenderer(native: NativeDocument = emptyNative, bas
   const assetBase = base.endsWith('/') ? base : `${base}/`
   // 迁移自旧站的图片仍带 /mypdf/ 前缀，渲染时统一改写成当前 base。
   const legacyPrefix = '/mypdf/'
-  const assetUrl = (url: string) => url.startsWith(legacyPrefix) ? assetBase + url.slice(legacyPrefix.length) : url
+  const assetUrl = (url: string) => {
+    if (url.startsWith('/content-assets/')) return assetBase + url.slice(1)
+    return url.startsWith(legacyPrefix) ? assetBase + url.slice(legacyPrefix.length) : url
+  }
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false, breaks: false })
   md.use(footnote)
   md.use(attrs)

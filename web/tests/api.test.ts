@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api } from '../src/lib/api'
+import { api, apiUrl } from '../src/lib/api'
 import type { AccountUser } from '../src/lib/session'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -9,10 +9,10 @@ describe('JSON API', () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ ok: true }))
     vi.stubGlobal('fetch', fetch)
 
-    await expect(api('/api/me/favorites', { method: 'PUT', json: { noteId: 'math/course/note' } }))
+    await expect(api('/me/favorites', { method: 'PUT', json: { noteId: 'math/course/note' } }))
       .resolves.toEqual({ ok: true })
     const [path, request] = fetch.mock.calls[0]
-    expect(path).toBe('/api/me/favorites')
+    expect(path).toBe(`${import.meta.env.VITE_API_BASE_PATH}me/favorites`)
     expect(request.method).toBe('PUT')
     expect(request.body).toBe('{"noteId":"math/course/note"}')
     expect(request.headers.get('Content-Type')).toBe('application/json')
@@ -24,7 +24,7 @@ describe('JSON API', () => {
     ['malformed JSON', '{', 'application/json'],
   ])('reports %s as an invalid response', async (_name, body, contentType) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { headers: { 'Content-Type': contentType } })))
-    await expect(api('/api/auth/session')).rejects.toMatchObject({ code: 'invalid_response', status: 200 })
+    await expect(api('/auth/session')).rejects.toMatchObject({ code: 'invalid_response', status: 200 })
   })
 
   it('preserves error codes and Retry-After', async () => {
@@ -32,9 +32,14 @@ describe('JSON API', () => {
       status: 429,
       headers: { 'Retry-After': '15' },
     })))
-    await expect(api('/api/search')).rejects.toMatchObject({
+    await expect(api('/search')).rejects.toMatchObject({
       code: 'rate_limited', message: '稍后重试', status: 429, retryAfter: 15,
     })
+  })
+
+  it('keeps query parameters in direct download and preview links', () => {
+    expect(apiUrl('/admin/asset/content?id=a%2Fb&trash=true'))
+      .toBe(`${import.meta.env.VITE_API_BASE_PATH}admin/asset/content?id=a%2Fb&trash=true`)
   })
 })
 

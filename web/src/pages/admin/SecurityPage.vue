@@ -45,7 +45,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    apply(await api<SecuritySettings>('/api/admin/auth-policy'))
+    apply(await api<SecuritySettings>('/admin/auth-policy'))
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '读取认证设置失败'
   } finally {
@@ -59,7 +59,7 @@ async function save() {
   error.value = ''
   message.value = ''
   try {
-    apply(await api<SecuritySettings>('/api/admin/auth-policy', { method: 'PUT', json: payload.value }))
+    apply(await api<SecuritySettings>('/admin/auth-policy', { method: 'PUT', json: payload.value }))
     message.value = '已保存，新规则已生效。'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '保存认证设置失败'

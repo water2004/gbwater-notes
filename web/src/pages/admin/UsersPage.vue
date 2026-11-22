@@ -37,7 +37,7 @@ async function load() {
   try {
     const params = new URLSearchParams({ limit: String(pageSize), offset: String((page.value - 1) * pageSize) })
     if (query.value.trim()) params.set('query', query.value.trim())
-    const data = await api<{ users: AdminUser[]; total: number }>(`/api/admin/users?${params}`, { signal: current.signal })
+    const data = await api<{ users: AdminUser[]; total: number }>(`/admin/users?${params}`, { signal: current.signal })
     if (current.signal.aborted) return
     total.value = data.total
     if (page.value > pageCount.value) {
@@ -81,7 +81,7 @@ async function patch(user: AdminUser, payload: { role?: string; status?: string 
   detailError.value = ''
   detailNotice.value = ''
   try {
-    const data = await api<{ user: AdminUser }>(`/api/admin/users/${user.id}`, { method: 'PATCH', json: payload })
+    const data = await api<{ user: AdminUser }>(`/admin/users/${user.id}`, { method: 'PATCH', json: payload })
     users.value = users.value.map(item => item.id === data.user.id ? data.user : item)
     managed.value = data.user
     detailNotice.value = `已更新 ${data.user.username}`
@@ -106,7 +106,7 @@ async function resetPassword(user: AdminUser) {
   detailNotice.value = ''
   temporaryPassword.value = ''
   try {
-    const data = await api<{ password: string }>(`/api/admin/users/${user.id}/password`, { method: 'POST', json: {} })
+    const data = await api<{ password: string }>(`/admin/users/${user.id}/password`, { method: 'POST', json: {} })
     temporaryPassword.value = data.password
     detailNotice.value = `已为 ${user.username} 生成临时密码，请通过安全渠道转交`
   } catch (reason) {
@@ -122,7 +122,7 @@ async function remove(user: AdminUser) {
   detailError.value = ''
   detailNotice.value = ''
   try {
-    await api(`/api/admin/users/${user.id}`, { method: 'DELETE' })
+    await api(`/admin/users/${user.id}`, { method: 'DELETE' })
     managed.value = undefined
     temporaryPassword.value = ''
     notice.value = `已删除 ${user.username}`

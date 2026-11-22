@@ -15,11 +15,17 @@ export class ApiError extends Error {
 type ApiRequest = Omit<RequestInit, 'body'> &
   ({ json?: unknown; file?: never } | { json?: never; file: Blob })
 
-export async function api<T>(path: string, { json, file, ...options }: ApiRequest = {}): Promise<T> {
+type ApiPath = `/${string}`
+
+export function apiUrl(path: ApiPath): string {
+  return `${import.meta.env.VITE_API_BASE_PATH}${path.slice(1)}`
+}
+
+export async function api<T>(path: ApiPath, { json, file, ...options }: ApiRequest = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
   if (json !== undefined) headers.set('Content-Type', 'application/json')
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers,
     body: json === undefined ? file : JSON.stringify(json),

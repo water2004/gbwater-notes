@@ -50,7 +50,7 @@ function persist() {
   const payload = { reading: { ...readingSettings } }
   saveTimer = setTimeout(() => {
     if (session.user?.id !== userID) return
-    void api('/api/me/settings', {
+    void api('/me/settings', {
       method: 'PUT',
       json: payload,
     }).catch(() => { /* 离线时保留本地设置 */ })
@@ -61,7 +61,7 @@ function persist() {
 async function syncReadingSettings(userID: string, signal: AbortSignal) {
   const revision = localRevision
   try {
-    const data = await api<{ reading?: Partial<ReadingSettings> }>('/api/me/settings', { signal })
+    const data = await api<{ reading?: Partial<ReadingSettings> }>('/me/settings', { signal })
     if (signal.aborted || session.user?.id !== userID || revision !== localRevision) return
     if (data.reading && Object.keys(data.reading).length) {
       apply(data.reading)

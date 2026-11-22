@@ -1,5 +1,5 @@
-# 下面所有 /mypdf/ 必须与构建时的 GBWATER_BASE_PATH 一致。
-# 改部署路径时：设置 GBWATER_BASE_PATH → 重新构建前端 → 同步修改这里的 location。
+# 页面路径与 GBWATER_BASE_PATH 一致，API location 与 GBWATER_API_BASE_PATH 一致。
+# API 前缀留空时取站点路径加 api/。反代目标末尾保留 /api/。
 server {
     listen 443 ssl;
     server_name notes.example.com;
@@ -12,8 +12,8 @@ server {
         return 308 /mypdf/;
     }
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
+    location ^~ /mypdf/api/ {
+        proxy_pass http://127.0.0.1:8080/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -24,6 +24,14 @@ server {
     location /mypdf/assets/ {
         alias /var/www/gbwater/frontend/assets/;
         add_header Cache-Control "public, max-age=2592000, immutable";
+        try_files $uri =404;
+    }
+
+    location /mypdf/admin-assets/ {
+        alias /var/www/gbwater/frontend/admin-assets/;
+        add_header Cache-Control "no-store" always;
+        etag off;
+        if_modified_since off;
         try_files $uri =404;
     }
 
