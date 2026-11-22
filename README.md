@@ -23,7 +23,7 @@ npm ci --prefix web
 npm ci --prefix third_party/folia/tools/mathjax-bundle --include=dev --ignore-scripts
 node deploy/prepare-folia.mjs third_party/folia
 CC=clang-21 CXX=clang++-21 cmake -S native/folia_bridge -B data/folia-bridge-build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -fexperimental-library' \
+  -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -fexperimental-library -pthread' \
   -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-21/lib/libc++.modules.json \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 cmake --build data/folia-bridge-build --target folia_md FoliaNativeMath FoliaNativeMermaid --parallel 3

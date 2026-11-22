@@ -24,9 +24,9 @@ COPY native/folia_bridge ./native/folia_bridge
 COPY deploy/prepare-folia.mjs /tmp/prepare-folia.mjs
 RUN npm ci --prefix third_party/folia/tools/mathjax-bundle --include=dev --ignore-scripts --no-audit --no-fund \
     && node /tmp/prepare-folia.mjs third_party/folia
-# Folia Gantt uses the time-zone database exported by libc++ 21's experimental library.
+# Folia Gantt uses libc++'s experimental time-zone database. Pango's thread flag must also match the std module.
 RUN cmake -S native/folia_bridge -B /tmp/folia-build -G Ninja \
-         -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -fexperimental-library' \
+         -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -fexperimental-library -pthread' \
          -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-21/lib/libc++.modules.json \
          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 RUN cmake --build /tmp/folia-build --target folia_md FoliaNativeMath FoliaNativeMermaid --parallel 3
