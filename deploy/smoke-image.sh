@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+mkdir -p data/db data/meilisearch
 sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
 docker compose config --quiet
 docker compose run --rm --no-deps api export-frontend
@@ -33,7 +34,13 @@ flowchart LR
   A[开始] --> B[End]
 ```
 NOTE
+docker compose up -d --wait --wait-timeout 150 db search
+GBWATER_DOCKER_GATEWAY=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$(docker compose ps -q db)")
+test -n "$GBWATER_DOCKER_GATEWAY"
+export GBWATER_DOCKER_GATEWAY
 docker compose up -d --wait --wait-timeout 150
+sudo test -s data/db/18/docker/PG_VERSION
+test -d data/meilisearch/data.ms
 curl --fail --silent --show-error http://127.0.0.1:8080/api/health
 
 python3 - <<'PY'

@@ -1,20 +1,31 @@
 # Linux 部署与运维
 
-宿主机 nginx 直接读取静态目录，保留原始请求 Host，把 `/api/` 转发给仅在环回地址监听的 Go 容器。PostgreSQL 与 Meilisearch 由同一个 Compose 项目管理。
+宿主机 nginx 直接读取静态目录，保留原始请求 Host，把 `/api/` 转发给仅在环回地址监听的 Go 容器。Compose 自动为三个服务组网，持久化目录都在 `docker-compose.yml` 所在目录下。
 
 ## 首次启动
 
-在 Linux 主机上安装 Docker Engine、Compose 插件和 nginx。从 [发行版](https://github.com/water2004/gbwater-notes/releases) 取得部署文件。
+在 Linux 主机上安装 Docker Engine、Compose 插件和 nginx。使用仓库 `main` 分支中的 [Compose 配置](../docker-compose.yml) 和 `deploy/`，镜像版本由 `.env` 指定。
 
 ```bash
 cp deploy/compose.env.example .env
+```
+
+在 `.env` 填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。
+
+```bash
+mkdir -p data/db data/meilisearch
 sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
 docker compose pull
+docker compose up -d --wait db search
+docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$(docker compose ps -q db)"
+```
+
+把上面查到的网关填入 `.env` 的 `GBWATER_DOCKER_GATEWAY`，API 据此识别宿主机 nginx 转发的访客 IP。
+
+```bash
 docker compose run --rm --no-deps api export-frontend
 docker compose up -d --wait
 ```
-
-执行前请填写 `.env`。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。
 
 `export-frontend` 将初始页面写入空的 `frontend/`。已有发布目录可以直接交给 nginx。运行容器的 UID/GID 是 `10001`，导入的内容目录和图床也需要该用户可读写。
 
@@ -42,7 +53,7 @@ docker compose up -d --wait
 | `GBWATER_ALLOW_REGISTRATION` | 公开注册开关 |
 | `GBWATER_MAIL_MODE` | `smtp` 或 `off` |
 | `GBWATER_SMTP_ADDR/USER/PASSWORD/FROM/TLS` | SMTP 地址、账号、密码、发件地址和 TLS 模式 |
-| `GBWATER_DOCKER_SUBNET`、`GBWATER_DOCKER_GATEWAY` | 内部网段与可信宿主机网关 |
+| `GBWATER_DOCKER_GATEWAY` | Docker 分配给本 Compose 项目的网关地址，用于信任宿主机 nginx 的转发头 |
 
 需要开放注册或找回密码时，配置 SMTP 后再启用相应功能。用 587 端口时 TLS 通常填 `starttls`，465 通常填 `tls`。注册域名限制和认证限流在后台保存，配置保存在 PostgreSQL。
 
@@ -55,8 +66,10 @@ docker compose up -d --wait
 | `data/gbwater/asset-trash/` | 图片回收站 |
 | `data/render/` | 可重建的后台渲染数据 |
 | `frontend/` | nginx 读取的静态发布目录 |
-| Compose `postgres` 卷 | 账号、会话、划线便签、站点设置、Markdown 修订 |
-| Compose `meilisearch` 卷 | 可重建的搜索索引 |
+| `data/db/` | PostgreSQL 数据，包含账号、会话、划线便签、站点设置和 Markdown 修订 |
+| `data/meilisearch/` | 可重建的搜索索引 |
+
+从最初使用命名卷的 `v1.0.0` Compose 迁移时，先从原 PostgreSQL 导出并验证备份，再恢复到 `data/db/` 对应的数据库。切换前保留原命名卷。搜索索引可在后台重新构建。
 
 升级前备份 PostgreSQL 和内容、图床、回收站。调整 `GBWATER_IMAGE` 后执行 `docker compose pull && docker compose up -d --wait`，然后从后台重新构建页面。首次导出只用于初始化静态目录。
 

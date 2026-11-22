@@ -7,7 +7,7 @@ services:
       POSTGRES_DB: gbwater
       POSTGRES_PASSWORD: ${GBWATER_DB_PASSWORD:?Set GBWATER_DB_PASSWORD}
     volumes:
-      - postgres:/var/lib/postgresql
+      - ./data/db:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gbwater -d gbwater"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
       MEILI_MASTER_KEY: ${GBWATER_MEILISEARCH_KEY:?Set GBWATER_MEILISEARCH_KEY}
       MEILI_NO_ANALYTICS: "true"
     volumes:
-      - meilisearch:/meili_data
+      - ./data/meilisearch:/meili_data
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7700/health"]
       interval: 5s
@@ -47,7 +47,7 @@ services:
       GBWATER_ADMIN_EMAIL: ${GBWATER_ADMIN_EMAIL:?Set GBWATER_ADMIN_EMAIL}
       GBWATER_ADMIN_PASSWORD: ${GBWATER_ADMIN_PASSWORD:?Set GBWATER_ADMIN_PASSWORD}
       GBWATER_ALLOW_REGISTRATION: ${GBWATER_ALLOW_REGISTRATION:-false}
-      GBWATER_TRUSTED_PROXIES: ${GBWATER_DOCKER_GATEWAY:-172.30.92.1}
+      GBWATER_TRUSTED_PROXIES: ${GBWATER_DOCKER_GATEWAY:-}
       GBWATER_MAIL_MODE: ${GBWATER_MAIL_MODE:-off}
       GBWATER_SMTP_ADDR: ${GBWATER_SMTP_ADDR:-}
       GBWATER_SMTP_USER: ${GBWATER_SMTP_USER:-}
@@ -61,14 +61,3 @@ services:
       - ./frontend:/app/web/dist
     ports:
       - "127.0.0.1:${GBWATER_PORT:-8080}:8080"
-
-volumes:
-  postgres:
-  meilisearch:
-
-networks:
-  default:
-    ipam:
-      config:
-        - subnet: ${GBWATER_DOCKER_SUBNET:-172.30.92.0/24}
-          gateway: ${GBWATER_DOCKER_GATEWAY:-172.30.92.1}
