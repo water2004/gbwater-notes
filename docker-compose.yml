@@ -1,0 +1,75 @@
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gbwater
+      POSTGRES_DB: gbwater
+      POSTGRES_PASSWORD: ${GBWATER_DB_PASSWORD:?Set GBWATER_DB_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gbwater -d gbwater"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  search:
+    image: getmeili/meilisearch:v1.56.0
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${GBWATER_MEILISEARCH_KEY:?Set GBWATER_MEILISEARCH_KEY}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    image: ${GBWATER_IMAGE:-ghcr.io/water2004/gbwater-notes:1.0.0}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      search:
+        condition: service_healthy
+    environment:
+      GBWATER_SITE_URL: ${GBWATER_SITE_URL:?Set GBWATER_SITE_URL}
+      GBWATER_BASE_PATH: ${GBWATER_BASE_PATH:-/mypdf/}
+      GBWATER_DATABASE_URL: postgres://gbwater:${GBWATER_DB_PASSWORD:?Set GBWATER_DB_PASSWORD}@db:5432/gbwater?sslmode=disable
+      GBWATER_MEILISEARCH_URL: http://search:7700
+      GBWATER_MEILISEARCH_KEY: ${GBWATER_MEILISEARCH_KEY:?Set GBWATER_MEILISEARCH_KEY}
+      GBWATER_ADMIN_USER: ${GBWATER_ADMIN_USER:-admin}
+      GBWATER_ADMIN_EMAIL: ${GBWATER_ADMIN_EMAIL:?Set GBWATER_ADMIN_EMAIL}
+      GBWATER_ADMIN_PASSWORD: ${GBWATER_ADMIN_PASSWORD:?Set GBWATER_ADMIN_PASSWORD}
+      GBWATER_ALLOW_REGISTRATION: ${GBWATER_ALLOW_REGISTRATION:-false}
+      GBWATER_TRUSTED_PROXIES: ${GBWATER_DOCKER_GATEWAY:-172.30.92.1}
+      GBWATER_MAIL_MODE: ${GBWATER_MAIL_MODE:-off}
+      GBWATER_SMTP_ADDR: ${GBWATER_SMTP_ADDR:-}
+      GBWATER_SMTP_USER: ${GBWATER_SMTP_USER:-}
+      GBWATER_SMTP_PASSWORD: ${GBWATER_SMTP_PASSWORD:-}
+      GBWATER_SMTP_FROM: ${GBWATER_SMTP_FROM:-}
+      GBWATER_SMTP_TLS: ${GBWATER_SMTP_TLS:-starttls}
+    volumes:
+      - ./content:/app/content
+      - ./data/gbwater:/app/data
+      - ./data/images:/app/web/public/content-assets
+      - ./data/render:/app/web/src/generated
+      - ./frontend:/app/web/dist
+    ports:
+      - "127.0.0.1:${GBWATER_PORT:-8080}:8080"
+
+volumes:
+  postgres:
+  meilisearch:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${GBWATER_DOCKER_SUBNET:-172.30.92.0/24}
+          gateway: ${GBWATER_DOCKER_GATEWAY:-172.30.92.1}

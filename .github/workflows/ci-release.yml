@@ -1,0 +1,118 @@
+name: CI and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: go vet ./... && go test ./...
+      - run: go test -tags integration -count=1 ./internal/app
+      - run: npm ci
+        working-directory: web
+      - run: npm run typecheck && npm test && npm run test:build
+        working-directory: web
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.publish.outputs.ref }}
+    env:
+      GBWATER_IMAGE: gbwater-notes:ci
+      GBWATER_SITE_URL: https://notes.example.com
+      GBWATER_ADMIN_EMAIL: admin@example.com
+      GBWATER_ADMIN_PASSWORD: ci-only-admin-password-98
+      GBWATER_DB_PASSWORD: 0123456789abcdef0123456789abcdef
+      GBWATER_MEILISEARCH_KEY: ci-only-meilisearch-key-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Verify release tag
+        if: github.ref_type == 'tag'
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git merge-base --is-ancestor HEAD origin/main
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Linux container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.GBWATER_IMAGE }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+      - name: Verify Linux publish workflow end to end
+        run: bash deploy/smoke-image.sh
+      - name: Collect container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop test services
+        if: always()
+        run: docker compose down -v
+      - name: Publish tested image
+        if: github.ref_type == 'tag'
+        id: publish
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${GITHUB_REF_NAME#v}"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "$GBWATER_IMAGE" "$image:$version"
+          docker push "$image:$version"
+          docker tag "$GBWATER_IMAGE" "$image:latest"
+          docker push "$image:latest"
+          ref="$(docker image inspect "$image:$version" --format '{{index .RepoDigests 0}}')"
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [test, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_REF: ${{ needs.image.outputs.ref }}
+        run: |
+          cp RELEASE.md "$RUNNER_TEMP/release.md"
+          printf '\n构建镜像摘要 `%s`\n' "$IMAGE_REF" >> "$RUNNER_TEMP/release.md"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "GBwater Notes $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release.md"
+          fi

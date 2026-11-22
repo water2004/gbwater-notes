@@ -1,0 +1,5 @@
+{
+  "math": { "name": "数学", "description": "从分析、代数到复变与计算方法，建立严谨的数学框架。" },
+  "physics": { "name": "物理", "description": "从经典力学到量子信息，记录公式背后的物理直觉。" },
+  "computer": { "name": "计算机", "description": "程序设计与电路基础，保留可复用的工程笔记。" }
+}

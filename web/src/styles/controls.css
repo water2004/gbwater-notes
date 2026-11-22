@@ -1,0 +1,105 @@
+:where(button, input, textarea, select) { color: inherit; font: inherit; }
+button, summary { cursor: pointer; }
+
+:where(a, button, summary, input, textarea, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea) {
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select) { min-height: 40px; }
+:where(input, textarea)::placeholder { color: var(--text-soft); opacity: 1; }
+:where(input, select, textarea):focus { border-color: var(--accent); }
+:where(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--accent-strong); }
+:where(input[type="checkbox"], input[type="radio"]) { width: 16px; height: 16px; }
+:where(textarea) { resize: vertical; }
+:where(button, input, select, textarea):disabled { cursor: not-allowed; opacity: .52; }
+
+.button, .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-weight: 650;
+  transition: background-color .15s, border-color .15s;
+}
+.button { gap: 7px; min-height: 40px; padding: 7px 14px; font-size: 14px; line-height: 1.5; }
+.button-primary { background: var(--accent-strong); color: var(--surface-inset); }
+html:not(.dark) .button-primary { color: #fffefa; }
+.button-primary:hover:not(:disabled) { background: var(--accent); }
+.button-quiet { border-color: var(--line-strong); background: var(--surface); color: var(--text); }
+.button-quiet:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.button-danger {
+  border-color: color-mix(in srgb, var(--control-danger) 35%, var(--line));
+  background: color-mix(in srgb, var(--control-danger) 7%, var(--surface));
+  color: var(--control-danger);
+}
+.button-danger:hover:not(:disabled) { border-color: var(--control-danger); background: color-mix(in srgb, var(--control-danger) 13%, var(--surface)); }
+.button-compact { min-height: 34px; padding: 4px 10px; font-size: 12px; }
+.icon-button { width: 40px; height: 40px; padding: 0; background: transparent; }
+.icon-button:hover:not(:disabled) { background: var(--accent-soft); }
+.icon-button-compact { width: 34px; height: 34px; }
+
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-inset);
+}
+.segmented-control > button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.segmented-control > button:hover:not(:disabled) { color: var(--accent-strong); }
+.segmented-control > button[aria-pressed="true"] { background: var(--surface-raised); color: var(--accent-strong); font-weight: 650; }
+
+.text-link { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 13px; font-weight: 650; }
+button.text-link { padding: 0; border: 0; background: transparent; }
+.text-link:hover:not(:disabled) { text-decoration: underline; text-underline-offset: .16em; }
+.text-link.danger { color: var(--control-danger); }
+
+.form-field { display: grid; gap: 6px; margin: 16px 0; min-width: 0; }
+.form-field > :is(span, label) { color: var(--text); font-size: 13px; font-weight: 600; }
+.form-field > input, .form-field > select, .form-field > textarea { width: 100%; }
+.form-field > small { color: var(--text-soft); font-size: 12px; }
+.form-field .form-hint-error { color: var(--control-danger); }
+
+.admin-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 0;
+  padding-inline: 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-soft);
+}
+.admin-filter-search input { flex: 1; width: 100%; min-height: 38px; border: 0; padding-inline: 0; background: transparent; }
+.admin-filter-search:focus-within,
+.search-box:focus-within,
+.shelf-search:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.admin-filter-search, .search-box, .shelf-search) input:focus-visible { outline: 0; }
+
+@media (max-width: 680px) {
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea) { font-size: 16px; }
+}

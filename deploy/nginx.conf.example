@@ -1,0 +1,52 @@
+# 下面所有 /mypdf/ 必须与构建时的 GBWATER_BASE_PATH 一致。
+# 改部署路径时：设置 GBWATER_BASE_PATH → 重新构建前端 → 同步修改这里的 location。
+server {
+    listen 443 ssl;
+    server_name notes.example.com;
+    index index.html;
+
+    ssl_certificate /etc/letsencrypt/live/notes.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/notes.example.com/privkey.pem;
+
+    location = /mypdf {
+        return 308 /mypdf/;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        client_max_body_size 12m;
+    }
+
+    location /mypdf/assets/ {
+        alias /var/www/gbwater/frontend/assets/;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+        try_files $uri =404;
+    }
+
+    location /mypdf/generated/ {
+        alias /var/www/gbwater/frontend/generated/;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+        try_files $uri =404;
+    }
+
+    location /mypdf/content-assets/ {
+        alias /var/www/gbwater/frontend/content-assets/;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri =404;
+    }
+
+    # 直接打开带笔记 ID 的编辑器地址时，交给 Vue Router 解析。
+    location ~ ^/mypdf/admin/editor/(?!index\.html$).+ {
+        rewrite ^ /mypdf/admin/editor/ last;
+    }
+
+    location /mypdf/ {
+        alias /var/www/gbwater/frontend/;
+        try_files $uri $uri/ =404;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "no-cache" always;
+    }
+}
