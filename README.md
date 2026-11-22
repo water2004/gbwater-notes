@@ -8,7 +8,7 @@
 
 部署方式沿用 Element Skin 的结构。Compose 运行 Go API、PostgreSQL 和 Meilisearch，宿主机 nginx 读取 `./frontend`。镜像包含 Linux Folia、Node 和初次安装用的空站前端。修改内容后在后台点击「构建并发布」。
 
-本版本镜像为 `ghcr.io/water2004/gbwater-notes:1.0.0`。仓库和镜像保留私有访问，部署机使用具有读取权限的 GHCR 凭据。参见 [Linux 部署与运维](docs/deployment.md)。
+本版本镜像为 `ghcr.io/water2004/gbwater-notes:1.0.0`。参见 [Linux 部署与运维](docs/deployment.md)。
 
 ## 本地开发
 
@@ -46,6 +46,8 @@ npm --prefix web run test:build
 GitHub Actions 在提交和 PR 中验证 Go、Vue、增量构建与 Linux 镜像。在 `main` 上推送 `vX.Y.Z` 标签后，测试通过的镜像发布到 GHCR，GitHub Release 记录镜像摘要。
 
 业务数据存放在部署目录。发布仓库包含应用源码、部署示例和测试夹具。部署方自行维护笔记、图床与数据库。
+
+项目源码采用 [MIT 协议](LICENSE)，第三方依赖沿用各自的许可。
 
 - [架构与数据模型](docs/architecture.md)
 - [Linux 部署与运维](docs/deployment.md)

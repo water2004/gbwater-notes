@@ -62,6 +62,7 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -o /out/gbwater ./cmd/gbwater
 
 FROM ubuntu:24.04
+LABEL org.opencontainers.image.licenses="MIT"
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl libpangocairo-1.0-0 fonts-noto-cjk fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
@@ -74,6 +75,7 @@ ENV GBWATER_ROOT=/app GBWATER_ADDR=0.0.0.0:8080 GBWATER_ENV=production \
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=folia /out /opt/gbwater/folia
 COPY --from=backend /out/gbwater /usr/local/bin/gbwater
+COPY LICENSE /usr/share/licenses/gbwater/LICENSE
 COPY --from=frontend --chown=10001:10001 /src/web /app/web
 COPY --from=frontend /src/internal /app/internal
 COPY --from=frontend /src/starter /opt/gbwater/frontend

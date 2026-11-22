@@ -9,13 +9,12 @@
 ```bash
 cp deploy/compose.env.example .env
 sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
-docker login ghcr.io -u YOUR_GITHUB_USERNAME
 docker compose pull
 docker compose run --rm --no-deps api export-frontend
 docker compose up -d --wait
 ```
 
-执行前请填写 `.env`。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。Docker 登录使用有权读取该私有包的经典 PAT，授予 `read:packages`。详见 [GHCR 登录说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry)。
+执行前请填写 `.env`。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。
 
 `export-frontend` 将初始页面写入空的 `frontend/`。已有发布目录可以直接交给 nginx。运行容器的 UID/GID 是 `10001`，导入的内容目录和图床也需要该用户可读写。
 
