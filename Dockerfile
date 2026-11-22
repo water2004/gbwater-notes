@@ -23,13 +23,14 @@ COPY third_party/folia ./third_party/folia
 COPY native/folia_bridge ./native/folia_bridge
 COPY deploy/prepare-folia.mjs /tmp/prepare-folia.mjs
 RUN npm ci --prefix third_party/folia/tools/mathjax-bundle --include=dev --ignore-scripts --no-audit --no-fund \
-    && node /tmp/prepare-folia.mjs third_party/folia \
-    && cmake -S native/folia_bridge -B /tmp/folia-build -G Ninja \
-         -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-stdlib=libc++ \
+    && node /tmp/prepare-folia.mjs third_party/folia
+# Folia Gantt uses the time-zone database exported by libc++ 21's experimental library.
+RUN cmake -S native/folia_bridge -B /tmp/folia-build -G Ninja \
+         -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS=-stdlib=libc++ -fexperimental-library' \
          -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-21/lib/libc++.modules.json \
-         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    && cmake --build /tmp/folia-build --target folia_md FoliaNativeMath FoliaNativeMermaid --parallel 3 \
-    && mkdir /out \
+         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+RUN cmake --build /tmp/folia-build --target folia_md FoliaNativeMath FoliaNativeMermaid --parallel 3
+RUN mkdir /out \
     && cp /tmp/folia-build/folia_md /tmp/folia-build/lib/libFoliaNative*.so /out/ \
     && cp -L /usr/lib/llvm-21/lib/libc++.so.1 /usr/lib/llvm-21/lib/libc++abi.so.1 /usr/lib/llvm-21/lib/libunwind.so.1 /out/ \
     && mkdir /out/licenses \
@@ -63,15 +64,15 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/gbwater ./cmd/gbwater
 
 FROM ubuntu:24.04
 LABEL org.opencontainers.image.licenses="MIT"
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl libpangocairo-1.0-0 fonts-noto-cjk fonts-dejavu-core \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates curl libpangocairo-1.0-0 fonts-noto-cjk fonts-dejavu-core tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 gbwater \
     && useradd --no-create-home -u 10001 -g gbwater gbwater
 WORKDIR /app
 ENV GBWATER_ROOT=/app GBWATER_ADDR=0.0.0.0:8080 GBWATER_ENV=production \
     GBWATER_FOLIA_BRIDGE=/opt/gbwater/folia/folia_md GBWATER_FOLIA_LIB_DIR=/opt/gbwater/folia \
-    LD_LIBRARY_PATH=/opt/gbwater/folia
+    LD_LIBRARY_PATH=/opt/gbwater/folia TZ=Etc/UTC
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=folia /out /opt/gbwater/folia
 COPY --from=backend /out/gbwater /usr/local/bin/gbwater
