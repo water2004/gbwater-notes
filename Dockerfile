@@ -54,7 +54,8 @@ RUN printf '[]\n' > public/catalog.json \
     && rm /src/starter/.build-cache.json \
     && printf '%s\n' "$GBWATER_BASE_PATH" > /src/frontend-base
 
-FROM golang:1.26-alpine AS backend
+# purego needs the same glibc dynamic loader used in the Ubuntu runtime.
+FROM golang:1.26-bookworm AS backend
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
