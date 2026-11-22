@@ -92,8 +92,9 @@ jobs:
           docker push "$image:$version"
           docker tag "$GBWATER_IMAGE" "$image:latest"
           docker push "$image:latest"
-          ref="$(docker image inspect "$image:$version" --format '{{index .RepoDigests 0}}')"
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          digest="$(docker buildx imagetools inspect "$image:$version" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'ref=%s@%s\n' "$image" "$digest" >> "$GITHUB_OUTPUT"
 
   release:
     if: github.ref_type == 'tag'
