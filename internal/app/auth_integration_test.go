@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -210,6 +212,15 @@ func TestFirstRegisteredUserBecomesAdmin(t *testing.T) {
 func TestAdminBootstrapAndUserManagement(t *testing.T) {
 	mailer := &capturingMailer{}
 	config := integrationConfig(t, freshDatabase(t))
+	config.Root = t.TempDir()
+	const fixtureNote = "math/演示课程/原生渲染"
+	fixture := filepath.Join(config.Root, "web", "src", "generated", "notes", filepath.FromSlash(fixtureNote)+".json")
+	if err := os.MkdirAll(filepath.Dir(fixture), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture, []byte(`{"math":{},"mermaid":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	config.Mailer = mailer
 	config.AdminUser = "admin"
 	config.AdminPassword = "AdminPass123"
@@ -289,7 +300,7 @@ func TestAdminBootstrapAndUserManagement(t *testing.T) {
 	}
 
 	// 公式元数据只对管理员开放，避免整批 TeX 源码随静态资源外泄。
-	nativePath := "/api/admin/note/native?id=" + url.QueryEscape("math/线性代数/矩阵")
+	nativePath := "/api/admin/note/native?id=" + url.QueryEscape(fixtureNote)
 	anonymousNative := requestJSON(t, server, http.MethodGet, nativePath, nil, nil)
 	if anonymousNative.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous native: %d %s", anonymousNative.Code, anonymousNative.Body.String())

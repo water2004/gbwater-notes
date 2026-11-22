@@ -17,6 +17,10 @@ for (const name of ['index.html', 'vite.config.ts', 'tsconfig.json', 'package.js
 }
 mkdirSync(join(web, 'public'), {recursive:true})
 cpSync(join(repo, 'web/public/favicon.svg'), join(web, 'public/favicon.svg'))
+const imageDir = join(fixture, 'data', 'content-assets')
+mkdirSync(imageDir, { recursive: true })
+writeFileSync(join(imageDir, 'test.svg'), '<svg xmlns="http://www.w3.org/2000/svg" />')
+symlinkSync(imageDir, join(publicDir, 'content-assets'), 'junction')
 mkdirSync(join(fixture, 'internal/app'), {recursive:true})
 cpSync(join(repo, 'internal/app/default_categories.json'), join(fixture, 'internal/app/default_categories.json'))
 symlinkSync(join(repo, 'web/node_modules'), join(web, 'node_modules'), 'junction')
@@ -48,6 +52,7 @@ function build(expected = 0) {
 }
 function fileTimes(dir = dist) {
   return Object.fromEntries(readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+    if (entry.name === '.build-cache.json') return []
     const filename = join(dir, entry.name)
     if (entry.isDirectory()) return Object.entries(fileTimes(filename)).map(([rel, time]) => [entry.name + '/' + rel, time])
     return [[entry.name, statSync(filename).mtimeMs]]
@@ -61,6 +66,7 @@ try {
   assert.match(readFileSync(join(dist, 'notes/first/index.html'),'utf8'), new RegExp(`data-source-revision="${revision}"`))
   assert.deepEqual(readFileSync(join(dist, 'note-content/first.json')), readFileSync(body(first)))
   assert.deepEqual(readFileSync(join(dist, 'catalog.json')), readFileSync(catalog))
+  assert.deepEqual(readFileSync(join(dist, 'content-assets/test.svg')), readFileSync(join(imageDir, 'test.svg')))
   assert(!existsSync(join(dist, 'note-content/unlisted.json')))
   assert.match(build(), /rendered 0, reused \d+.*updated 0, removed 0/)
   assert.deepEqual(fileTimes(), initial)
@@ -106,5 +112,6 @@ try {
 } finally {
   // 已知路径由上面的 mkdtempSync 创建，先移除指向真实依赖目录的链接。
   unlinkSync(join(web, 'node_modules'))
+  unlinkSync(join(publicDir, 'content-assets'))
   rmSync(fixture, { recursive: true, force: true })
 }

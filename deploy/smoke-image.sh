@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/images data/render
+sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
 docker compose config --quiet
 docker compose run --rm --no-deps api export-frontend
 test -s frontend/index.html

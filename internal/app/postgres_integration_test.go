@@ -3,6 +3,7 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -38,6 +39,13 @@ func TestPostgreSQLHistoryRoundTrip(t *testing.T) {
 // 验证 schema 与 notes 索引足以从 content/ 重建全部公开笔记。
 func TestPostgreSQLSyncsContent(t *testing.T) {
 	config := integrationConfig(t, freshDatabase(t))
+	config.Root = t.TempDir()
+	store := NewContentStore(filepath.Join(config.Root, "content"))
+	for _, title := range []string{"首篇", "次篇"} {
+		if _, err := store.Create(Note{Title: title, Category: "math", Course: "演示课程"}, "一段测试正文。"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	config.MeiliURL = "http://127.0.0.1:1" // 让搜索同步快速失败，测试只关心 PostgreSQL
 	server, err := NewServer(config)
 	if err != nil {
@@ -45,7 +53,7 @@ func TestPostgreSQLSyncsContent(t *testing.T) {
 	}
 	defer server.Close()
 	catalog, err := server.store.List()
-	if err != nil || len(catalog) == 0 {
+	if err != nil || len(catalog) != 2 {
 		t.Fatalf("list content: %d notes, %v", len(catalog), err)
 	}
 	server.SyncContent()

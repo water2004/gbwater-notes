@@ -57,7 +57,6 @@ services:
     volumes:
       - ./content:/app/content
       - ./data/gbwater:/app/data
-      - ./data/images:/app/web/public/content-assets
       - ./data/render:/app/web/src/generated
       - ./frontend:/app/web/dist
     ports:

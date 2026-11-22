@@ -13,7 +13,9 @@ const root = realpathSync.native(fileURLToPath(new URL('../', import.meta.url)))
 process.chdir(root)
 const dist = join(root, 'dist')
 const publicDir = join(root, 'public')
-const cacheFile = join(root, '.build-cache.json')
+const cacheName = '.build-cache.json'
+const stagePrefix = '.dist-build-'
+const cacheFile = join(dist, cacheName)
 
 function hash(value) {
   return createHash('sha256').update(value).digest('hex')
@@ -156,10 +158,13 @@ async function buildPages(stage) {
 function publish(stage, { pages, reused }) {
   const staged = files(stage)
   const expected = new Set([...staged, ...reused])
-  const publicFiles = files(publicDir).filter(name =>
-    !expected.has(name) && !name.startsWith('note-content/'))
+  const publicFiles = [
+    ...files(publicDir, new Set(['content-assets', 'note-content'])),
+    ...files(join(publicDir, 'content-assets')).map(name => `content-assets/${name}`),
+  ].filter(name => !expected.has(name))
   publicFiles.forEach(name => expected.add(name))
-  const obsolete = files(dist).filter(name => !expected.has(name))
+  const transient = readdirSync(dist).filter(name => name.startsWith(stagePrefix))
+  const obsolete = files(dist, new Set([cacheName, ...transient])).filter(name => !expected.has(name))
   const updates = staged.filter(name => fileHash(join(stage, name)) !== fileHash(join(dist, name)))
   const publicUpdates = publicFiles.filter(name => fileHash(join(publicDir, name)) !== fileHash(join(dist, name)))
   // 增量复制静态资源，避免每次构建都复制所有图片和公式 SVG。
@@ -184,16 +189,21 @@ function publish(stage, { pages, reused }) {
     }
   }
 
-  const manifest = join(stage, '.build-cache.json')
-  writeFileSync(manifest, JSON.stringify({ pages: Object.fromEntries(pages) }) + '\n')
-  renameSync(manifest, cacheFile)
+  const metadata = JSON.stringify({ pages: Object.fromEntries(pages) }) + '\n'
+  if (hash(metadata) !== fileHash(cacheFile)) {
+    const manifest = join(stage, cacheName)
+    writeFileSync(manifest, metadata)
+    renameSync(manifest, cacheFile)
+  }
   const updated = updates.length + publicUpdates.length
   console.log(`[publish] updated ${updated}, removed ${obsolete.length}, kept ${expected.size - updated}`)
 }
 
 const unlock = await lockfile.lock(root, { lockfilePath: join(root, '.build-lock'), stale: 30_000 })
 try {
-  const stage = mkdtempSync(join(root, '.dist-build-'))
+  // Temporary files and the target share a filesystem even when dist is a bind mount.
+  mkdirSync(dist, { recursive: true })
+  const stage = mkdtempSync(join(dist, stagePrefix))
   try {
     publish(stage, await buildPages(stage))
   } finally {

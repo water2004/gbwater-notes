@@ -8,7 +8,7 @@
 
 ```bash
 cp deploy/compose.env.example .env
-sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/images data/render
+sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
 docker login ghcr.io -u YOUR_GITHUB_USERNAME
 docker compose pull
 docker compose run --rm --no-deps api export-frontend
@@ -52,7 +52,7 @@ docker compose up -d --wait
 | 路径或卷 | 内容 |
 | --- | --- |
 | `content/` | Markdown 原文 |
-| `data/images/` | 图床原图 |
+| `data/gbwater/content-assets/` | 图床原图 |
 | `data/gbwater/asset-trash/` | 图片回收站 |
 | `data/render/` | 可重建的后台渲染数据 |
 | `frontend/` | nginx 读取的静态发布目录 |

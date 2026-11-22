@@ -50,7 +50,7 @@ ARG GBWATER_BASE_PATH=/mypdf/
 RUN printf '[]\n' > public/catalog.json \
     && GBWATER_BASE_PATH="$GBWATER_BASE_PATH" node scripts/build.mjs \
     && mv dist /src/starter \
-    && rm .build-cache.json \
+    && rm /src/starter/.build-cache.json \
     && printf '%s\n' "$GBWATER_BASE_PATH" > /src/frontend-base
 
 FROM golang:1.26-alpine AS backend
@@ -79,8 +79,9 @@ COPY --from=frontend /src/internal /app/internal
 COPY --from=frontend /src/starter /opt/gbwater/frontend
 COPY --from=frontend /src/frontend-base /opt/gbwater/frontend-base
 COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/gbwater-entrypoint
-RUN install -d -o 10001 -g 10001 /app/content /app/data /app/web/dist \
-      /app/web/public/content-assets /app/web/src/generated
+RUN install -d -o 10001 -g 10001 /app/content /app/data/content-assets /app/web/dist /app/web/src/generated \
+    && chown 10001:10001 /app/data \
+    && ln -s ../../data/content-assets /app/web/public/content-assets
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s CMD curl --fail --silent http://127.0.0.1:8080/api/health || exit 1

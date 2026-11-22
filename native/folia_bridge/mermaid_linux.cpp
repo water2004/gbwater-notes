@@ -124,6 +124,8 @@ public:
     std::expected<std::vector<std::u16string>, std::string> wrap(
         std::u16string_view source, const MermaidFont& font, double width,
         std::span<const MermaidTextStyle> styles, bool break_spaces) const override {
+        if (width == std::numeric_limits<double>::infinity())
+            return std::vector<std::u16string>{std::u16string(source)};
         if (!std::isfinite(width) || width <= 0) return std::unexpected("Invalid Mermaid wrapping width");
         const auto raw = utf8(source);
         auto layout = shape(source, font, styles);

@@ -15,6 +15,7 @@ server {
     location /api/ {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-For $remote_addr;
         client_max_body_size 12m;
@@ -36,6 +37,11 @@ server {
         alias /var/www/gbwater/frontend/content-assets/;
         add_header Cache-Control "no-cache" always;
         try_files $uri =404;
+    }
+
+    # 构建临时目录和增量索引位于同一挂载内。
+    location ~ ^/mypdf/\. {
+        return 404;
     }
 
     # 直接打开带笔记 ID 的编辑器地址时，交给 Vue Router 解析。
