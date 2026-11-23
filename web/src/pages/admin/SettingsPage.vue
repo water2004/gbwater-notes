@@ -24,6 +24,48 @@ const message = ref('')
 const newID = ref('')
 const newName = ref('')
 const categoryError = ref('')
+const iconLoading = ref(false)
+const iconError = ref('')
+
+async function selectIcon(event: Event) {
+  const input = event.currentTarget as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  iconError.value = ''
+  if (file.size > 2 * 1024 * 1024) {
+    iconError.value = '请选择 2 MiB 以内的图片。'
+    return
+  }
+  iconLoading.value = true
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    image.src = url
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 128
+    const context = canvas.getContext('2d')
+    if (!context || !image.naturalWidth || !image.naturalHeight) throw new Error('无法读取图片')
+    const ratio = 128 / Math.max(image.naturalWidth, image.naturalHeight)
+    const width = image.naturalWidth * ratio
+    const height = image.naturalHeight * ratio
+    context.drawImage(image, (128 - width) / 2, (128 - height) / 2, width, height)
+    settings.value.favicon = canvas.toDataURL('image/png')
+    message.value = ''
+  } catch {
+    iconError.value = '无法读取这张图片。请选择 PNG、JPG、WebP、SVG 或 ICO。'
+  } finally {
+    URL.revokeObjectURL(url)
+    iconLoading.value = false
+  }
+}
+
+function resetIcon() {
+  settings.value.favicon = ''
+  iconError.value = ''
+  message.value = ''
+}
 function addCategory() {
   const id = newID.value.trim()
   const name = newName.value.trim()
@@ -73,7 +115,7 @@ function validate() {
   return true
 }
 async function save() {
-  if (!dirty.value || saving.value) return
+  if (!dirty.value || saving.value || iconLoading.value) return
   error.value = ''; message.value = ''
   if (!validate()) return
   saving.value = true
@@ -81,13 +123,13 @@ async function save() {
     const saved = await api<unknown>('/admin/site-settings', { method: 'PUT', json: settings.value })
     settings.value = normalizeSiteSettings(saved)
     savedSnapshot.value = JSON.stringify(settings.value)
-    message.value = '设置已保存。公开静态页面会在下次构建后使用新文案。'
+    message.value = '设置已保存，下次发布后生效。'
   } catch (reason) { error.value = reason instanceof Error ? reason.message : '保存设置失败' } finally { saving.value = false }
 }
 function undoChanges() {
-  if (!savedSnapshot.value) return
+  if (!savedSnapshot.value || iconLoading.value) return
   settings.value = normalizeSiteSettings(JSON.parse(savedSnapshot.value))
-  error.value = ''; message.value = ''
+  error.value = ''; message.value = ''; iconError.value = ''
 }
 function addSection() { settings.value.about.sections.push({ title: '新章节', body: '' }); message.value = '' }
 function removeSection(index: number) { if (settings.value.about.sections.length > 1) settings.value.about.sections.splice(index, 1) }
@@ -125,6 +167,25 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm('站点设置还有未�
                 <label class="form-field"><span>站点标记</span><input v-model="settings.brand.mark" maxlength="2"></label>
                 <label class="form-field field-wide"><span>英文副标题</span><input v-model="settings.brand.subtitle"></label>
               </div>
+            </section>
+            <section class="site-settings-section">
+              <h3>浏览器图标</h3>
+              <div class="settings-favicon">
+                <img v-if="settings.favicon" :src="settings.favicon" alt="自定义图标预览" width="48" height="48">
+                <span v-else class="settings-favicon-default" aria-label="使用默认图标"><AppIcon name="book" :size="22" /></span>
+                <div>
+                  <div class="settings-favicon-actions">
+                    <label class="button button-quiet">
+                      {{ iconLoading ? '正在读取…' : '选择图片' }}
+                      <input class="visually-hidden" type="file" accept=".png,.jpg,.jpeg,.webp,.svg,.ico" aria-label="选择浏览器图标"
+                        :disabled="iconLoading" @change="selectIcon">
+                    </label>
+                    <button v-if="settings.favicon" class="text-link" type="button" :disabled="iconLoading" @click="resetIcon">使用默认图标</button>
+                  </div>
+                  <p class="form-hint">支持 PNG、JPG、WebP、SVG 和 ICO，最大 2 MiB。保存后随下次发布生效。</p>
+                </div>
+              </div>
+              <p v-if="iconError" class="error-message" role="alert">{{ iconError }}</p>
             </section>
             <section class="site-settings-section">
               <h3>主导航</h3>
@@ -260,8 +321,8 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm('站点设置还有未�
           <p v-else-if="message" role="status">{{ message }} <RouterLink to="/admin/publish" class="text-link">前往发布<AppIcon name="arrowRight" :size="15" /></RouterLink></p>
           <p v-else aria-live="polite">{{ dirty ? '有未保存的修改' : '保存后，在发布页构建更新。' }}</p>
           <div>
-            <button class="button button-quiet" type="button" :disabled="!dirty || saving" @click="undoChanges">撤销修改</button>
-            <button class="button button-primary" type="submit" :disabled="!dirty || saving"><AppIcon name="check" :size="16" />{{ saving ? '保存中…' : '保存设置' }}</button>
+            <button class="button button-quiet" type="button" :disabled="!dirty || saving || iconLoading" @click="undoChanges">撤销修改</button>
+            <button class="button button-primary" type="submit" :disabled="!dirty || saving || iconLoading"><AppIcon name="check" :size="16" />{{ saving ? '保存中…' : '保存设置' }}</button>
           </div>
         </footer>
       </form>

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { apiPlaceholder, deploymentPaths, dynamicAssets, isDynamicPath, sitePlaceholder } from './deployment.ts'
@@ -8,15 +8,16 @@ export function prepareFrontend(starter, dist, paths) {
   const files = readdirSync(source, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile())
     .map(entry => relative(source, join(entry.parentPath, entry.name)).replaceAll('\\', '/'))
-    .filter(isDynamicPath)
+    .filter(name => isDynamicPath(name) || name === 'favicon.svg')
     .sort((a, b) => Number(b.startsWith(`${dynamicAssets}/`)) - Number(a.startsWith(`${dynamicAssets}/`)))
   mkdirSync(dist, { recursive: true })
   for (const name of files) {
+    const target = join(dist, name)
+    if (name === 'favicon.svg' && existsSync(target)) continue
     let data = readFileSync(join(source, name))
     if (['.html', '.js', '.css'].includes(extname(name))) {
       data = Buffer.from(data.toString('utf8').replaceAll(sitePlaceholder, paths.site).replaceAll(apiPlaceholder, paths.api))
     }
-    const target = join(dist, name)
     try {
       if (readFileSync(target).equals(data)) continue
     } catch (error) {

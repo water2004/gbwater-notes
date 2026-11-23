@@ -1,14 +1,40 @@
 package app
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestSiteIconSVG(t *testing.T) {
+	var imageData bytes.Buffer
+	if err := png.Encode(&imageData, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	source := pngDataPrefix + base64.StdEncoding.EncodeToString(imageData.Bytes())
+	data, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	icon, err := siteIconSVG(data)
+	if err != nil || !strings.Contains(icon, `href="`+source+`"`) {
+		t.Fatalf("expected embedded PNG: %q, %v", icon, err)
+	}
+	for _, invalid := range []string{`"https://example.com/favicon.svg"`, `"data:image/svg+xml;base64,PHN2Zz4="`, `"data:image/png;base64,PHN2Zz4="`} {
+		if _, err := siteIconSVG(json.RawMessage(invalid)); err == nil {
+			t.Fatalf("accepted invalid icon: %s", invalid)
+		}
+	}
+}
 
 func TestPublicSettingsStorageAndExport(t *testing.T) {
 	db, mock, err := sqlmock.New()

@@ -19,6 +19,7 @@ const cacheName = '.build-cache.json'
 const stagePrefix = '.dist-build-'
 const cacheFile = join(dist, cacheName)
 const dynamicMode = process.env.GBWATER_DYNAMIC_FRONTEND
+const customIcon = join(root, 'src', 'generated', 'site-icon.svg')
 const preserve = dynamicMode === 'installed' ? [...dynamicEntries] : []
 const publication = dynamicMode === 'template'
   ? { rendered: { 'catalog.json': fileHash(join(publicDir, 'catalog.json')) }, assets: [] }
@@ -47,6 +48,12 @@ function fileHash(path) {
     if (error.code === 'ENOENT') return undefined
     throw error
   }
+}
+
+function publicSource(name) {
+  return name === 'favicon.svg' && dynamicMode !== 'template' && existsSync(customIcon)
+    ? customIcon
+    : join(publicDir, name)
 }
 
 function readCache() {
@@ -78,7 +85,7 @@ async function buildPages(stage) {
   const catalogInputs = catalogPageInputs(catalog, categories)
   const courseNavigationHash = navigationByCourse(catalog)
   const publicFiles = new Map(Object.entries(publication.rendered))
-  publicFiles.set('favicon.svg', fileHash(join(publicDir, 'favicon.svg')))
+  publicFiles.set('favicon.svg', fileHash(publicSource('favicon.svg')))
   for (const id of publication.assets) {
     const name = `content-assets/${id}`
     publicFiles.set(name, id)
@@ -190,7 +197,7 @@ function publish(stage, { pages, reused, bundle, publicFiles, previous, publicat
   for (const name of publicUpdates) {
     const target = join(stage, name)
     mkdirSync(dirname(target), { recursive: true })
-    copyFileSync(join(publicDir, name), target)
+    copyFileSync(publicSource(name), target)
   }
   if (updates.length || publicUpdates.length || obsolete.length) rmSync(cacheFile, { force: true })
   // 新资源先落盘，随后替换引用这些资源的页面，最后清理旧产物。

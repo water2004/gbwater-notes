@@ -175,7 +175,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -190,7 +189,6 @@ type windowsMath struct {
 }
 
 func openMath(dllPath string) (mathRenderer, error) {
-	runtime.LockOSThread()
 	prepareDLLDirectories(filepath.Dir(dllPath))
 	utf16Path, err := syscall.UTF16FromString(dllPath)
 	if err != nil {
@@ -238,7 +236,6 @@ func (m *windowsMath) Close() {
 	if m.handle != nil {
 		C.folia_math_close(m.handle)
 		m.handle = nil
-		runtime.UnlockOSThread()
 	}
 }
 

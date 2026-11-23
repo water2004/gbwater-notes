@@ -3,6 +3,7 @@ import { readCategories, type Categories } from './categories'
 
 export interface AboutSectionSettings { title: string; body: string }
 export interface PublicSiteSettings {
+  favicon: string
   brand: { mark: string; name: string; subtitle: string }
   navigation: { home: string; library: string; search: string; about: string }
   footer: { tagline: string; copyright: string; icp: string; police: string }
@@ -20,6 +21,7 @@ export interface PublicSiteSettings {
 }
 
 const defaults: PublicSiteSettings = {
+  favicon: '',
   brand: { mark: '秋', name: '碧山秋云', subtitle: 'GBWATER NOTES' },
   navigation: { home: '首页', library: '笔记库', search: '搜索', about: '关于' },
   footer: {
@@ -67,6 +69,7 @@ function mergeSettings<T>(base: T, override: unknown): T {
 
 export function normalizeSiteSettings(value: unknown) {
   const settings = mergeSettings(cloneDefaults(), value)
+  if (typeof settings.favicon !== 'string' || !settings.favicon.startsWith('data:image/png;base64,')) settings.favicon = ''
   settings.categories = readCategories(value && typeof value === 'object' && 'categories' in value ? value.categories : undefined)
   return settings
 }

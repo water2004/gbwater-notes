@@ -77,7 +77,7 @@ type Formula struct {
 	Display bool
 }
 
-// mathRenderer 与 mermaidRenderer 由平台文件实现；非 Windows 平台返回明确错误。
+// Folia requires the math renderer to stay on its creating OS thread.
 type mathRenderer interface {
 	Render(tex string, display bool) (svg string, width, height, baseline float64, err error)
 	Close()
@@ -143,9 +143,14 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 		math:    map[string]MathEntry{},
 		mermaid: map[string]MermaidEntry{},
 		openMath: sync.OnceValues(func() (mathRenderer, error) {
+			runtime.LockOSThread()
 			renderer, err := openMath(nativeLibrary(root, "Math", "FOLIA_MATH_DLL"))
+			if err != nil {
+				runtime.UnlockOSThread()
+				return nil, err
+			}
 			mathR = renderer
-			return renderer, err
+			return renderer, nil
 		}),
 		openMermaid: sync.OnceValues(func() (mermaidRenderer, error) {
 			renderer, err := openMermaid(nativeLibrary(root, "Mermaid", "FOLIA_MERMAID_DLL"))
@@ -156,6 +161,7 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 	defer func() {
 		if mathR != nil {
 			mathR.Close()
+			runtime.UnlockOSThread()
 		}
 		if mermaidR != nil {
 			mermaidR.Close()
