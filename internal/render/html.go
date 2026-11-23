@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"gbwater/internal/anchor"
+	"gbwater/internal/app"
 )
 
 var (
@@ -32,7 +33,7 @@ type htmlBridge struct {
 
 type articlePublication struct {
 	Article anchor.Article
-	Catalog CatalogNote
+	Catalog app.CatalogNote
 }
 
 type cachedArticle struct {
@@ -54,21 +55,24 @@ func (bridge *htmlBridge) cacheKey(doc *document, assets NativeDocument) (string
 func (bridge *htmlBridge) prepare(ctx context.Context, doc *document, contentDir, generatedDir string) error {
 	target := cachedArticlePath(generatedDir, doc.note.ID)
 	var cached cachedArticle
-	if content, err := os.ReadFile(target); err == nil && json.Unmarshal(content, &cached) == nil {
-		doc.publication = cached.Publication
-		key, err := bridge.cacheKey(doc, doc.previous)
-		if err != nil {
-			return err
-		}
-		if key == cached.Key {
-			doc.cached = true
-			for _, formula := range doc.previous.Math {
-				doc.formulas = append(doc.formulas, Formula{Tex: formula.Tex, Display: formula.Display})
+	if !doc.force {
+		content, err := os.ReadFile(target)
+		if err == nil && json.Unmarshal(content, &cached) == nil {
+			doc.publication = cached.Publication
+			key, err := bridge.cacheKey(doc, doc.previous)
+			if err != nil {
+				return err
 			}
-			for _, diagram := range doc.previous.Mermaid {
-				doc.diagrams = append(doc.diagrams, diagram.Source)
+			if key == cached.Key {
+				doc.cached = true
+				for _, formula := range doc.previous.Math {
+					doc.formulas = append(doc.formulas, Formula{Tex: formula.Tex, Display: formula.Display})
+				}
+				for _, diagram := range doc.previous.Mermaid {
+					doc.diagrams = append(doc.diagrams, diagram.Source)
+				}
+				return nil
 			}
-			return nil
 		}
 	}
 	if err := bridge.parse(ctx, doc, contentDir); err != nil {
@@ -236,7 +240,7 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 	var injectionErr error
 	renderMath := func(tex string, display bool) string {
 		found, ok := math[mathLookupKey(tex, display)]
-		if !ok || found.entry.Error != "" || found.entry.Width == nil || found.entry.Height == nil {
+		if !ok || found.entry.Error != "" || len(found.entry.Frames) == 0 {
 			message := "公式未预渲染"
 			if ok && found.entry.Error != "" {
 				message = found.entry.Error
@@ -244,18 +248,7 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 			injectionErr = fmt.Errorf("%s: %q", message, tex)
 			return ""
 		}
-		entry := found.entry
-		width, height := formatFloat(*entry.Width), formatFloat(*entry.Height)
-		baseline := *entry.Height
-		if entry.Baseline != nil {
-			baseline = *entry.Baseline
-		}
-		image := `<img class="math-image" src="` + base + `generated/math/` + found.key + `.svg" alt="" width="` + width + `" height="` + height +
-			`" style="vertical-align:` + formatFloat(baseline-*entry.Height) + `px" loading="lazy" decoding="async">`
-		if display {
-			return `<div class="math-display" role="math" aria-label="公式">` + image + `</div>`
-		}
-		return `<span class="math-inline" role="math" aria-label="公式">` + image + `</span>`
+		return mathMarkup(base+"generated/math/"+found.key+".svg", found.entry.Frames, display)
 	}
 
 	page = bridgeInlineMathPattern.ReplaceAllStringFunc(page, func(match string) string {

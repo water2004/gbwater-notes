@@ -316,7 +316,39 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "build_disabled", "当前部署未启用站内构建，请在构建环境中生成静态产物")
 		return
 	}
-	status, err := s.builds.Start(r.Context())
+	request := BuildRequest{}
+	if r.Body != http.NoBody && decodeJSON(w, r, &request) != nil {
+		writeError(w, http.StatusBadRequest, "invalid_build", "构建请求格式不正确")
+		return
+	}
+	if request.Mode == "" {
+		request.Mode = BuildIncremental
+	}
+	switch request.Mode {
+	case BuildNote:
+		if !validNoteID(request.NoteID) {
+			writeError(w, http.StatusBadRequest, "invalid_build", "请选择要重建的笔记")
+			return
+		}
+		var exists bool
+		if err := s.db.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM notes WHERE id=$1)`, request.NoteID).Scan(&exists); err != nil {
+			fail(w, err)
+			return
+		}
+		if !exists {
+			writeError(w, http.StatusNotFound, "note_not_found", "该笔记已移除")
+			return
+		}
+	case BuildIncremental, BuildAll:
+		if request.NoteID != "" {
+			writeError(w, http.StatusBadRequest, "invalid_build", "全站构建无需指定笔记")
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_build", "未知的构建方式")
+		return
+	}
+	status, err := s.builds.Start(r.Context(), request)
 	if err != nil {
 		log.Printf("enqueue build: %v", err)
 		writeError(w, http.StatusInternalServerError, "build_enqueue_failed", "无法将任务加入发布队列")

@@ -12,15 +12,14 @@ import (
 )
 
 func TestArticleHTMLAndCatalogKeepOnlyRenderedContent(t *testing.T) {
-	width, height := 24.0, 16.0
 	fragment := `<h2 id="chapter-raw_1">章<strong>节</strong><span class="math-inline">\frac{raw_1}{2}</span></h2>
 <p>说明 <em>正文</em> <a href="/reference">链接</a>。</p>
 <div class="math-block">\sum_{raw_2}</div>
 <pre class="mermaid-source"><code>flowchart LR
 A--&gt;B</code></pre>`
 	assets := NativeDocument{Math: map[string]MathEntry{
-		"inline":  {Tex: `\frac{raw_1}{2}`, Width: &width, Height: &height},
-		"display": {Tex: `\sum_{raw_2}`, Display: true, Width: &width, Height: &height},
+		"inline":  {Tex: `\frac{raw_1}{2}`, Frames: []MathFrame{{Width: 1.2, Height: .8}}},
+		"display": {Tex: `\sum_{raw_2}`, Display: true, Frames: []MathFrame{{Width: 1.2, Height: .8}}},
 	}, Mermaid: map[string]MermaidEntry{
 		"diagram": {Source: "flowchart LR\nA-->B\n"},
 	}}
@@ -46,8 +45,30 @@ A--&gt;B</code></pre>`
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Excerpt != "章节 说明 正文 链接。" || len(catalog.Headings) != 1 || catalog.Headings[0] != (Heading{Level: 2, Title: "章节", Slug: "章节"}) {
+	if catalog.Excerpt != "章节 说明 正文 链接。" || len(catalog.Headings) != 1 || catalog.Headings[0] != (app.Heading{Level: 2, Title: "章节", Slug: "章节"}) {
 		t.Fatalf("unexpected catalog: %+v", catalog)
+	}
+}
+
+func TestFoliaMathBreaksUseOneAssetAndRelativeSize(t *testing.T) {
+	output := mathSVG{source: `<mjx-container><svg xmlns="http://www.w3.org/2000/svg" width="1ex" viewBox="0 -750 500 1000"><g data-latex="original"><path d="M0 0h5"/></g></svg><mjx-break size="3"> </mjx-break><svg xmlns="http://www.w3.org/2000/svg" width="2ex" viewBox="0 -750 1000 1000"><g><path d="M0 0h10"/></g></svg></mjx-container>`}
+	parts, err := parseMathParts(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, frames := packMath(parts)
+	page := mathMarkup("/notes/generated/math/asset.svg", frames, false)
+	for _, want := range []string{"<wbr>", "width:0.222em", "width:0.5em", "vertical-align:-0.25em", "asset.svg#math-1", "asset.svg#math-2"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("missing %s: %s", want, page)
+		}
+	}
+	if strings.Contains(svg, "original") || !strings.Contains(svg, `<view id="math-2" viewBox="0 1000 1000 1000"`) {
+		t.Fatal(svg)
+	}
+	text, err := anchor.RenderedText("<p>公式前" + page + "公式后</p>")
+	if err != nil || text != "公式前公式后" {
+		t.Fatalf("formula changed the text anchor: %q, %v", text, err)
 	}
 }
 

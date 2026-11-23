@@ -30,7 +30,7 @@ services:
       retries: 12
 
   api:
-    image: ${GBWATER_IMAGE:-ghcr.io/water2004/gbwater-notes:1.0.3}
+    image: ${GBWATER_IMAGE:-ghcr.io/water2004/gbwater-notes:1.0.4}
     restart: unless-stopped
     depends_on:
       db:

@@ -233,12 +233,26 @@ img { max-width: 100%; }
 .note-article table { display: block; width: max-content; max-width: 100%; margin: 1.5em 0; border-collapse: collapse; font-family: var(--sans); font-size: .78em; overflow-x: auto; }
 .note-article th, .note-article td { min-width: 80px; padding: 10px 14px; border: 1px solid var(--line); text-align: left; }
 .note-article th { background: var(--accent-soft); color: var(--accent-strong); }
-.math-inline { display: inline; white-space: nowrap; }
-.math-image { max-width: none; }
+.math-inline .math-image { max-width: 100%; }
+.math-image { height: auto; max-width: none; }
+.math-gap { display: inline-block; height: 0; }
 .note-article img.math-image { -webkit-user-drag: none; }
 
-.math-display { max-width: 100%; margin: 1.5em 0; padding: 4px 0; text-align: center; overflow-x: auto; overflow-y: hidden; }
+.math-display { container: formula / inline-size; max-width: 100%; margin: 1.5em 0; padding: 4px 0; text-align: center; overflow-x: auto; overflow-y: hidden; }
 .math-display .math-image { display: inline-block; }
+.math-display .math-layout-28, .math-display .math-layout-42, .math-display .math-layout-56 { display: none; }
+@container formula (min-width: 28em) {
+  .math-display .math-layout-14 { display: none; }
+  .math-display .math-layout-28 { display: inline-block; }
+}
+@container formula (min-width: 42em) {
+  .math-display .math-layout-28 { display: none; }
+  .math-display .math-layout-42 { display: inline-block; }
+}
+@container formula (min-width: 56em) {
+  .math-display .math-layout-42 { display: none; }
+  .math-display .math-layout-56 { display: inline-block; }
+}
 .math-fallback { color: #b75b50; white-space: pre-wrap; }
 .content-center { margin: 1.5em 0; text-align: center; }
 .minipage { margin: 1.5em 0; padding: 16px 20px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
@@ -549,6 +563,10 @@ html.dark .mermaid-dark { display: block; }
 .code-row { display: flex; gap: 10px; }
 .code-row input { flex: 1; min-width: 0; }
 .code-row .button { width: auto; margin: 0; white-space: nowrap; }
+.email-suffix-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .95fr); }
+.email-suffix-row input { min-width: 0; border-start-end-radius: 0; border-end-end-radius: 0; }
+.email-suffix-row select { min-width: 0; border-start-start-radius: 0; border-end-start-radius: 0; margin-inline-start: -1px; }
+.email-suffix-row :focus-visible { position: relative; z-index: 1; }
 .form-hint { margin: 0; color: var(--text-faint); font-size: 11px; line-height: 1.6; }
 .form-hint-error { color: #b75b50; }
 .form-hint-success { color: var(--accent-strong); }

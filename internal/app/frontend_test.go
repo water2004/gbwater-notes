@@ -125,3 +125,91 @@ func TestFrontendInstallAndIncrementalPublish(t *testing.T) {
 		}
 	}
 }
+
+func TestSingleNotePublishKeepsThePublishedSnapshotOfOtherNotes(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GBWATER_FRONTEND_BUNDLE", "")
+	const base = "/notes-site/"
+	const api = "/service/"
+	const original = "旧站点"
+	const revision = "1234567890abcdef1234567890abcdef"
+	put := func(name, data string) {
+		t.Helper()
+		if err := atomicWrite(filepath.Join(root, filepath.FromSlash(name)), data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash("web/dist/"+name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	encode := func(value any) string {
+		t.Helper()
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	note := CatalogNote{ID: "math/course/one", Title: "原题", Slug: "one", Category: "math", Course: "课程", CourseSlug: "course"}
+	other := CatalogNote{ID: "math/course/two", Title: "另一篇", Slug: "two", Category: "math", Course: "课程", CourseSlug: "course"}
+	article := func(html string) string { return encode(anchor.Article{HTML: html, Revision: revision}) }
+	put("web/compiled/index.html", `<html lang="zh-CN"><head><title>Notes</title></head><body><div id="app"></div></body></html>`)
+	put("web/compiled/assets/site.js", "app")
+	put("web/public/favicon.svg", "<svg/>")
+	put("web/public/site-settings.json", `{"brand":{"name":"`+original+`"}}`)
+	initial := RenderedPublication{Files: map[string]string{}}
+	for name, data := range map[string]string{
+		"catalog.json":         encode([]CatalogNote{note, other}),
+		articleFilename("one"): article("<p>初版</p>"),
+		articleFilename("two"): article("<p>已发布的另一篇</p>"),
+	} {
+		put("web/public/"+name, data)
+		initial.Files[name] = fingerprint([]byte(data))
+	}
+	if err := publishFrontend(t.Context(), root, base, api, initial, nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	secondPage := "notes/two/index.html"
+	otherBefore := get(secondPage)
+	otherPath := filepath.Join(root, "web", "dist", filepath.FromSlash(secondPage))
+	mtime := time.Unix(1700000000, 0)
+	if err := os.Chtimes(otherPath, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	put("web/public/site-settings.json", `{"brand":{"name":"未发布站点设置"}}`)
+	put("web/public/"+articleFilename("two"), article("<p>另一篇未发布的修改</p>"))
+	put("web/public/content-assets/used.png", "used")
+	put("web/public/content-assets/unrelated.png", "unrelated")
+	note.Title, note.Slug = "新题", "renamed"
+	target := Note{ID: note.ID, Slug: note.Slug}
+	put("scoped/catalog.json", encode([]CatalogNote{note}))
+	data := article(`<p>新版</p><img src="/notes-site/content-assets/used.png">`)
+	put("scoped/"+articleFilename(note.Slug), data)
+	delta := RenderedPublication{Files: map[string]string{articleFilename(note.Slug): fingerprint([]byte(data))}}
+	if err := publishSingleNote(t.Context(), root, base, api, filepath.Join(root, "scoped"), target, delta,
+		[]string{"used.png", "unrelated.png"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(get("notes/renamed/index.html"), "<p>新版</p>") ||
+		!strings.Contains(get("courses/course/index.html"), "新题") ||
+		!strings.Contains(get("site-settings.json"), original) || get(secondPage) != otherBefore ||
+		get("content-assets/used.png") != "used" {
+		t.Fatal("single-note publication changed the wrong artifacts")
+	}
+	if info, err := os.Stat(otherPath); err != nil || !info.ModTime().Equal(mtime) {
+		t.Fatalf("unrelated article was rewritten: %v, %v", info, err)
+	}
+	for _, name := range []string{"notes/one/index.html", articleFilename("one"), "content-assets/unrelated.png"} {
+		if _, err := os.Stat(filepath.Join(root, "web", "dist", filepath.FromSlash(name))); !os.IsNotExist(err) {
+			t.Errorf("unexpected artifact %s: %v", name, err)
+		}
+	}
+	if source, err := os.ReadFile(filepath.Join(root, "web", "public", "catalog.json")); err != nil || !strings.Contains(string(source), "renamed") {
+		t.Fatalf("Vite reader catalogue did not update: %s, %v", source, err)
+	}
+}

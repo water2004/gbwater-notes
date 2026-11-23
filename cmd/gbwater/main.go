@@ -18,7 +18,7 @@ func main() {
 		if err := json.NewDecoder(os.Stdin).Decode(&job); err != nil {
 			log.Fatalf("读取构建任务: %v", err)
 		}
-		if err := render.Run(context.Background(), job.Root, job.BasePath, job.Notes, os.Stdout); err != nil {
+		if err := render.Run(context.Background(), job, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 		return

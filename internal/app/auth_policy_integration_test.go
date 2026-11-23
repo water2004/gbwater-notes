@@ -40,6 +40,17 @@ func TestAuthPolicyTakesEffectAndPersists(t *testing.T) {
 	if resp := requestJSON(t, server, http.MethodPut, path, policy, cookie); resp.Code != http.StatusOK {
 		t.Fatalf("save policy: %d %s", resp.Code, resp.Body.String())
 	}
+	const registrationPath = "/api/auth/registration"
+	var options struct {
+		Enabled      bool
+		EmailDomains []string
+	}
+	public := requestJSON(t, server, http.MethodGet, registrationPath, nil, nil)
+	decodeInto(t, public, &options)
+	if public.Code != http.StatusOK || public.Header().Get("Cache-Control") != "no-store" ||
+		!options.Enabled || len(options.EmailDomains) != 1 || options.EmailDomains[0] != "school.example" {
+		t.Fatalf("registration options: %d %s", public.Code, public.Body)
+	}
 
 	check := func(body any, path string, status int, code string) {
 		t.Helper()
@@ -100,6 +111,14 @@ func TestAuthPolicyTakesEffectAndPersists(t *testing.T) {
 	saved := reloaded.snapshot()
 	if saved.RateAttempts != 2 || saved.EmailMode != "allowlist" || len(saved.EmailDomains) != 1 || saved.EmailDomains[0] != "school.example" {
 		t.Fatalf("saved policy: %+v", saved)
+	}
+	policy.EmailMode = "denylist"
+	if _, err := server.authPolicy.save(t.Context(), policy); err != nil {
+		t.Fatal(err)
+	}
+	decodeInto(t, requestJSON(t, server, http.MethodGet, registrationPath, nil, nil), &options)
+	if len(options.EmailDomains) != 0 {
+		t.Fatal("registration exposed private denylist entries")
 	}
 }
 

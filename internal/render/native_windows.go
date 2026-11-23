@@ -20,7 +20,8 @@ typedef struct {
 	double baseline;
 } fragment_metrics;
 
-typedef int (*fn_render)(void*, const uint16_t*, size_t, double, double, void*, uint32_t, void**);
+typedef int (*fn_render)(void*, const uint16_t*, size_t, int, double, double, void*, uint32_t, void**);
+typedef int (*fn_fragment)(void*, const uint16_t*, size_t, double, double, void*, uint32_t, void**);
 typedef const char* (*fn_result_svg)(void*, size_t*);
 typedef const char* (*fn_result_error)(void*, size_t*);
 typedef int (*fn_result_metrics)(void*, fragment_metrics*);
@@ -30,6 +31,7 @@ typedef struct {
 	fn_create create;
 	fn_cancel_create cancel_create;
 	fn_render render;
+	fn_fragment fragment;
 	fn_result_svg result_svg;
 	fn_result_error result_error;
 	fn_result_metrics result_metrics;
@@ -63,14 +65,15 @@ static void* folia_math_open(const wchar_t* path, char* err, int errlen) {
 	ctx->module = module;
 	ctx->create = (fn_create)GetProcAddress(module, "FoliaNativeMathRendererCreate");
 	ctx->cancel_create = (fn_cancel_create)GetProcAddress(module, "FoliaNativeMathCancellationCreate");
-	ctx->render = (fn_render)GetProcAddress(module, "FoliaNativeMathRenderSvgFragment");
+	ctx->render = (fn_render)GetProcAddress(module, "FoliaNativeMathRenderSvg");
+	ctx->fragment = (fn_fragment)GetProcAddress(module, "FoliaNativeMathRenderSvgFragment");
 	ctx->result_svg = (fn_result_svg)GetProcAddress(module, "FoliaNativeMathResultSvg");
 	ctx->result_error = (fn_result_error)GetProcAddress(module, "FoliaNativeMathResultError");
 	ctx->result_metrics = (fn_result_metrics)GetProcAddress(module, "FoliaNativeMathResultFragmentMetrics");
 	ctx->result_destroy = (fn_result_destroy)GetProcAddress(module, "FoliaNativeMathResultDestroy");
 	ctx->renderer_destroy = (fn_destroy)GetProcAddress(module, "FoliaNativeMathRendererDestroy");
 	ctx->cancel_destroy = (fn_destroy)GetProcAddress(module, "FoliaNativeMathCancellationDestroy");
-	if (ctx->create == NULL || ctx->cancel_create == NULL || ctx->render == NULL ||
+	if (ctx->create == NULL || ctx->cancel_create == NULL || ctx->render == NULL || ctx->fragment == NULL ||
 		ctx->result_svg == NULL || ctx->result_error == NULL || ctx->result_metrics == NULL ||
 		ctx->result_destroy == NULL || ctx->renderer_destroy == NULL || ctx->cancel_destroy == NULL) {
 		set_error(err, errlen, "FoliaNativeMath 导出函数不完整");
@@ -95,13 +98,14 @@ static void* folia_math_open(const wchar_t* path, char* err, int errlen) {
 }
 
 // folia_math_render 返回 0 表示成功，1 表示失败（错误写入 err）。
-static int folia_math_render(void* handle, const uint16_t* tex, size_t length, double font_size,
+static int folia_math_render(void* handle, const uint16_t* tex, size_t length, int mode, double font_size,
 		double max_width, char** svg, size_t* svg_length, double* width, double* height,
 		double* baseline, char* err, int errlen) {
 	folia_math* ctx = (folia_math*)handle;
 	void* result = NULL;
-	int status = ctx->render(ctx->renderer, tex, length, font_size, max_width,
-		ctx->cancellation, 15000, &result);
+	int status = mode == 2
+		? ctx->fragment(ctx->renderer, tex, length, font_size, max_width, ctx->cancellation, 15000, &result)
+		: ctx->render(ctx->renderer, tex, length, mode, font_size, max_width, ctx->cancellation, 15000, &result);
 	if (result == NULL) {
 		snprintf(err, (size_t)errlen, "Folia 未返回结果 (状态 %d)", status);
 		return 1;
@@ -138,7 +142,7 @@ static int folia_math_render(void* handle, const uint16_t* tex, size_t length, d
 	memcpy(copy, source, source_length);
 	copy[source_length] = '\0';
 	fragment_metrics metrics = {0, 0, 0};
-	if (!ctx->result_metrics(result, &metrics)) {
+	if (mode == 2 && !ctx->result_metrics(result, &metrics)) {
 		free(copy);
 		set_error(err, errlen, "Folia 未返回公式尺寸");
 		ctx->result_destroy(result);
@@ -206,7 +210,7 @@ func openMath(dllPath string) (mathRenderer, error) {
 	return &windowsMath{handle: handle}, nil
 }
 
-func (m *windowsMath) Render(tex string, display bool) (string, float64, float64, float64, error) {
+func (m *windowsMath) Render(tex string, mode mathMode, maxWidth float64) (mathSVG, error) {
 	units := utf16Encode(tex)
 	var textPointer *C.uint16_t
 	if len(units) > 0 {
@@ -217,19 +221,16 @@ func (m *windowsMath) Render(tex string, display bool) (string, float64, float64
 	var svgLength C.size_t
 	var width, height, baseline C.double
 	status := C.folia_math_render(
-		m.handle, textPointer, C.size_t(len(units)), C.double(18.0), C.double(1120.0),
+		m.handle, textPointer, C.size_t(len(units)), C.int(mode), C.double(mathEm), C.double(maxWidth),
 		&svgPointer, &svgLength, &width, &height, &baseline,
 		(*C.char)(unsafe.Pointer(&errBuffer[0])), C.int(len(errBuffer)),
 	)
 	if status != 0 {
-		return "", 0, 0, 0, errors.New(cString(errBuffer))
+		return mathSVG{}, errors.New(cString(errBuffer))
 	}
 	svg := C.GoStringN(svgPointer, C.int(svgLength))
 	C.free(unsafe.Pointer(svgPointer))
-	if unknown := unknownMathCommands(svg); len(unknown) > 0 {
-		return "", 0, 0, 0, fmt.Errorf("公式渲染错误: %s", strings.Join(unknown, ", "))
-	}
-	return svg, float64(width), float64(height), float64(baseline), nil
+	return mathSVG{source: svg, width: float64(width), height: float64(height), baseline: float64(baseline)}, nil
 }
 
 func (m *windowsMath) Close() {

@@ -16,7 +16,7 @@ func TestPostgreSQLHistory(t *testing.T) {
 	history := &History{db: db}
 	defer history.Close()
 	now := time.Now()
-	status := BuildStatus{ID: 1, State: "success", StartedAt: now.Add(-time.Second), FinishedAt: now, Log: "ok"}
+	status := BuildStatus{BuildTask: BuildTask{ID: 1}, State: "success", StartedAt: now.Add(-time.Second), FinishedAt: now, Log: "ok"}
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE builds SET state=$2, started_at=$3, finished_at=$4, log=$5, error=$6 WHERE id=$1`)).
 		WithArgs(status.ID, status.State, status.StartedAt, status.FinishedAt, status.Log, status.Error).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -33,10 +33,10 @@ func TestPostgreSQLHistory(t *testing.T) {
 	if err := history.RecordRevision(document, "create", nil); err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery(`SELECT id, state, started_at, finished_at, error FROM builds WHERE state IN \('success','failed'\) ORDER BY id DESC LIMIT \$1`).
-		WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"id", "state", "started_at", "finished_at", "error"}).AddRow(1, "success", now, now, ""))
+	mock.ExpectQuery(`SELECT id, mode, note_id, state, started_at, finished_at, error FROM builds WHERE state IN \('success','failed'\) ORDER BY id DESC LIMIT \$1`).
+		WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"id", "mode", "note_id", "state", "started_at", "finished_at", "error"}).AddRow(1, BuildNote, document.Note.ID, "success", now, now, ""))
 	builds, err := history.RecentBuilds(t.Context(), 10)
-	if err != nil || len(builds) != 1 || builds[0].State != "success" {
+	if err != nil || len(builds) != 1 || builds[0].State != "success" || builds[0].NoteID != document.Note.ID {
 		t.Fatalf("builds: %+v, %v", builds, err)
 	}
 	mock.ExpectQuery(`SELECT id, note_id, revision, title, action, created_at FROM revisions WHERE note_id = \$1 ORDER BY id DESC LIMIT \$2`).

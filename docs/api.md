@@ -15,6 +15,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/auth/email-code` | 提交 `email`、`purpose`（`register` 或 `reset`），返回 `{ok, cooldownSeconds}` |
+| GET | `/api/auth/registration` | 返回注册是否开放和白名单域名 `{enabled, emailDomains}`，供注册页显示邮箱后缀 |
 | POST | `/api/auth/register` | 提交 `username`、`email`、`password`、`code`。成功返回 `201` 和 `{user}`，同时登录 |
 | POST | `/api/auth/login` | 提交 `identifier`（邮箱或用户名）、`password`，返回 `{user}` |
 | POST | `/api/auth/logout` | 吊销当前会话 |
@@ -116,9 +117,9 @@ Unicode 字符区间，起点包含、终点排除。找不到可靠位置时省
 | GET | `/api/admin/note/native?id=…` | 读取构建生成的公式和 Mermaid 元数据，缺失时返回 `404 native_not_found` |
 | GET | `/api/admin/revisions?noteId=…` | 返回指定笔记最近 50 条修订，按最新记录优先排序。每条含 `id`、`noteId`、`revision`、`title`、`action`、`createdAt` |
 | GET | `/api/admin/revisions/{id}?noteId=…` | 按修订记录 ID 和笔记 ID 读取历史快照，返回 `{content}`。记录不存在或归属于其他笔记时返回 `404 revision_not_found` |
-| GET | `/api/admin/build` | 返回构建开关、当前任务 ID、状态、日志、时间和等待任务数 `queued` |
+| GET | `/api/admin/build` | 返回构建开关、当前任务范围、状态、日志、时间和等待队列 `queue` |
 | GET | `/api/admin/build/history` | 返回 `{builds}`，包含最近 20 次发布记录 |
-| POST | `/api/admin/build` | 将任务加入发布队列并返回 `202` 和队列状态。构建关闭时返回 `409 build_disabled` |
+| POST | `/api/admin/build` | 提交 `{mode, noteId?}`，范围为 `incremental`（默认）、`note`（必填 `noteId`）或 `all`。返回 `202` 和该任务的 ID、范围及入队状态。构建关闭时返回 `409 build_disabled` |
 | GET | `/api/admin/users` | 可传 `query`、`limit`、`offset`，返回 `{users, total, limit, offset}` |
 | PATCH | `/api/admin/users/{id}` | 修改 `role` 或 `status`，返回 `{user}` |
 | DELETE | `/api/admin/users/{id}` | 删除用户，返回 `{ok}` |

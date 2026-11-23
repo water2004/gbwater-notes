@@ -20,6 +20,12 @@ draft: false
 
 Folia math $x^2 + 1$.
 
+Inline $a+b=c+d+e+f+g+h+i+j+k+l+m+n$.
+
+$$
+a+b=c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t+u+v+w+x+y+z
+$$
+
 ```mermaid
 flowchart LR
   A[开始] --> B[End]
@@ -75,33 +81,46 @@ with request("/api/auth/login", {
     assert json.load(response)["user"]["isAdmin"]
     headers["Cookie"] = response.headers["Set-Cookie"].split(";", 1)[0]
 
-def build():
-    with request("/api/admin/build", {}) as response:
+def build(mode="incremental", note_id=None):
+    payload = {"mode": mode}
+    if note_id:
+        payload["noteId"] = note_id
+    with request("/api/admin/build", payload) as response:
         assert response.status == 202
+        task = json.load(response)
+        assert task["mode"] == mode and task["state"] == "running", task
     for _ in range(120):
         with request("/api/admin/build") as response:
             status = json.load(response)
+        assert status["id"] == task["id"], status
         if status["state"] == "success":
             return status["log"]
         if status["state"] == "failed":
-            raise RuntimeError(status["log"])
+            raise RuntimeError(status["error"] + "\n" + status["log"])
         time.sleep(1)
     raise TimeoutError("Linux note build timed out")
 
 first = build()
-assert "[native] 1 notes, 1 public, 65 formulas, 1 diagrams" in first, first
+assert "[native] 1 notes, 1 public, 67 formulas, 1 diagrams" in first, first
 root = pathlib.Path("frontend")
 page = root / "notes/smoke/index.html"
 article = page.read_text()
 assert "math-image" in article and "mermaid-figure" in article, article[:500]
 assert "x^2 + 1" not in article and "flowchart LR" not in article
-assert len(list((root / "generated/math").glob("*.svg"))) == 65
+assert "<wbr" in article and "math-layout-14" in article and "math-layout-56" in article
+assert "a+b=c+d" not in article
+assert len(list((root / "generated/math").glob("*.svg"))) == 67
 assert len(list((root / "generated/mermaid").glob("*.svg"))) == 2
 mtime = page.stat().st_mtime_ns
 second = build()
 assert "[articles] rendered 0, reused 1" in second, second
 assert "rendered 0, reused " in second and "updated 0, removed 0" in second, second
 assert page.stat().st_mtime_ns == mtime
+
+for mode, note_id in [("note", "math/Smoke/Smoke"), ("all", None)]:
+    forced = build(mode, note_id)
+    assert "[articles] rendered 1, reused 0" in forced, forced
+    assert "updated 0, removed 0" in forced and page.stat().st_mtime_ns == mtime, forced
 
 def png_chunk(kind, data):
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
@@ -132,5 +151,5 @@ with zipfile.ZipFile(io.BytesIO(package)) as archive:
 with request("/api/admin/document-packages?preview=true", archive=package) as response:
     plan = json.load(response)
     assert plan["notes"][0]["action"] == "reuse" and not plan["conflicts"]
-print("Verified Linux native rendering, repeat publishing, and favicon changes.")
+print("Verified Linux formula reflow, scoped and full rebuilds, incremental publishing, and favicon changes.")
 PY

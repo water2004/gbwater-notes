@@ -155,8 +155,7 @@ func (a *Annotations) prepareArticle(ctx context.Context, noteID string, article
 	return tx.Commit()
 }
 
-func (s *Server) prepareAnnotationPublication(ctx context.Context, revisions map[string]string) error {
-	directory := filepath.Join(s.config.Root, "web", "public")
+func (s *Server) prepareAnnotationPublication(ctx context.Context, directory string, revisions map[string]string) error {
 	notes, err := readAnnotationCatalog(directory)
 	if err != nil {
 		return err

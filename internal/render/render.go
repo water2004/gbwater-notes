@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,38 +24,12 @@ import (
 	"gbwater/internal/app"
 )
 
-type Heading struct {
-	Level int    `json:"level"`
-	Title string `json:"title"`
-	Slug  string `json:"slug"`
-}
-
-type CatalogNote struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	Category       string    `json:"category"`
-	CategoryTitle  string    `json:"categoryTitle"`
-	Course         string    `json:"course"`
-	Slug           string    `json:"slug"`
-	CourseSlug     string    `json:"courseSlug"`
-	Order          int       `json:"order"`
-	Draft          bool      `json:"draft"`
-	Excerpt        string    `json:"excerpt"`
-	Characters     int       `json:"characters"`
-	ReadingMinutes int       `json:"readingMinutes"`
-	Headings       []Heading `json:"headings"`
-}
-
-// MathEntry 的字段顺序与旧版 JSON 一致：成功时 width/height/baseline/tex/display，
-// 失败时 error/tex/display。
 type MathEntry struct {
-	Digest   string   `json:"digest,omitempty"`
-	Width    *float64 `json:"width,omitempty"`
-	Height   *float64 `json:"height,omitempty"`
-	Baseline *float64 `json:"baseline,omitempty"`
-	Error    string   `json:"error,omitempty"`
-	Tex      string   `json:"tex"`
-	Display  bool     `json:"display"`
+	Digest  string      `json:"digest,omitempty"`
+	Frames  []MathFrame `json:"frames,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Tex     string      `json:"tex"`
+	Display bool        `json:"display"`
 }
 
 type MermaidEntry struct {
@@ -79,7 +53,7 @@ type Formula struct {
 
 // Folia requires the math renderer to stay on its creating OS thread.
 type mathRenderer interface {
-	Render(tex string, display bool) (svg string, width, height, baseline float64, err error)
+	Render(tex string, mode mathMode, width float64) (mathSVG, error)
 	Close()
 }
 
@@ -92,6 +66,7 @@ type document struct {
 	note        app.Note
 	fragment    string
 	cached      bool
+	force       bool
 	publication articlePublication
 	formulas    []Formula
 	diagrams    []string
@@ -108,13 +83,18 @@ type buildAssets struct {
 }
 
 // Run generates every public artifact for a build.
-func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer) error {
+func Run(ctx context.Context, job app.RenderJob, log io.Writer) error {
+	root, base, notes := job.Root, job.BasePath, job.Notes
 	if root == "" || base == "" {
 		return errors.New("构建任务缺少站点根目录或挂载路径")
 	}
 	contentDir := filepath.Join(root, "content")
 	generatedDir := filepath.Join(root, "web", "src", "generated")
 	publicDir := filepath.Join(root, "web", "public")
+	stateDir, outputDir := generatedDir, publicDir
+	if job.Output != "" {
+		stateDir, outputDir = job.Output, job.Output
+	}
 	var bridge *htmlBridge
 	if len(notes) > 0 {
 		var err error
@@ -128,6 +108,7 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 	for _, note := range notes {
 		doc := document{
 			note:     note,
+			force:    job.Force,
 			previous: readNativeFile(generatedDir, note.ID),
 			native:   NativeDocument{Math: map[string]MathEntry{}, Mermaid: map[string]MermaidEntry{}},
 		}
@@ -169,7 +150,7 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 	}()
 
 	var failures []error
-	published := make([]CatalogNote, 0, len(documents))
+	published := make([]app.CatalogNote, 0, len(documents))
 	mathCount, mermaidCount := 0, 0
 	reused := 0
 	assetsDir := filepath.Join(publicDir, "generated")
@@ -204,21 +185,9 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 		return err
 	}
 	fmt.Fprintf(log, "[articles] rendered %d, reused %d\n", len(documents)-reused, reused)
-	sort.Slice(published, func(i, j int) bool {
-		a, b := published[i], published[j]
-		if a.Category != b.Category {
-			return a.Category < b.Category
-		}
-		if a.Course != b.Course {
-			return a.Course < b.Course
-		}
-		if a.Order != b.Order {
-			return a.Order < b.Order
-		}
-		return a.Title < b.Title
-	})
+	slices.SortFunc(published, app.CompareCatalogNotes)
 
-	state := filepath.Join(generatedDir, app.RenderManifest)
+	state := filepath.Join(stateDir, app.RenderManifest)
 	var previous app.RenderedPublication
 	if raw, err := os.ReadFile(state); err == nil {
 		_ = json.Unmarshal(raw, &previous)
@@ -233,7 +202,7 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 		digest := sha256.Sum256(data)
 		version := hex.EncodeToString(digest[:])
 		manifest[name] = version
-		target := filepath.Join(publicDir, name)
+		target := filepath.Join(outputDir, name)
 		if previous.Files[name] == version && fileExists(target) {
 			return nil
 		}
@@ -245,7 +214,7 @@ func Run(ctx context.Context, root, base string, notes []app.Note, log io.Writer
 		}
 		return replaceFile(target, data)
 	}
-	if err := publishReaderArticles(publicDir, documents, writePublished); err != nil {
+	if err := publishReaderArticles(outputDir, documents, writePublished); err != nil {
 		return err
 	}
 	if err := writePublished("catalog.json", published); err != nil {
@@ -323,25 +292,24 @@ func renderDocument(doc *document, assets *buildAssets, publicDir, generatedDir 
 		destination := filepath.Join(publicDir, "math", key+".svg")
 		entry := MathEntry{}
 		var rendered string
-		if fileExists(destination) {
-			if previous, ok := doc.previous.Math[key]; ok && previous.Error == "" && previous.Width != nil {
+		if !doc.force && fileExists(destination) {
+			if previous, ok := doc.previous.Math[key]; ok && previous.Error == "" && len(previous.Frames) > 0 {
 				entry = previous
 			}
 		}
-		if entry.Width == nil {
+		if len(entry.Frames) == 0 {
 			mathR, err := assets.openMath()
 			if err != nil {
 				doc.failMath(key, formula, err.Error())
 				continue
 			}
-			svg, width, height, baseline, err := mathR.Render(formula.Tex, formula.Display)
+			svg, frames, err := renderMathLayout(mathR, formula)
 			if err != nil {
 				doc.failMath(key, formula, err.Error())
 				continue
 			}
 			rendered = svg
-			roundedWidth, roundedHeight, roundedBaseline := round4(width), round4(height), round4(baseline)
-			entry.Width, entry.Height, entry.Baseline = &roundedWidth, &roundedHeight, &roundedBaseline
+			entry.Frames = frames
 		}
 		if entry.Digest == "" {
 			data := rendered
@@ -364,7 +332,7 @@ func renderDocument(doc *document, assets *buildAssets, publicDir, generatedDir 
 			entry.Digest = assetDigest([]byte(data))
 		}
 		if rendered != "" {
-			if err := replaceFile(destination, []byte(rendered)); err != nil {
+			if err := writeIfChanged(destination, []byte(rendered)); err != nil {
 				doc.failMath(key, formula, err.Error())
 				continue
 			}
@@ -384,7 +352,7 @@ func renderDocument(doc *document, assets *buildAssets, publicDir, generatedDir 
 		lightPath := filepath.Join(publicDir, "mermaid", key+"-light.svg")
 		darkPath := filepath.Join(publicDir, "mermaid", key+"-dark.svg")
 		entry := MermaidEntry{}
-		if fileExists(lightPath) && fileExists(darkPath) {
+		if !doc.force && fileExists(lightPath) && fileExists(darkPath) {
 			if previous, ok := doc.previous.Mermaid[key]; ok && previous.Error == "" && previous.Width != nil {
 				entry = previous
 			}
@@ -538,7 +506,7 @@ func mathKey(tex string, display bool) string {
 	if display {
 		prefix = "1"
 	}
-	digest := sha256.Sum256([]byte(prefix + "\x00" + tex))
+	digest := sha256.Sum256([]byte("folia-math-layout\x00" + prefix + "\x00" + tex))
 	return hex.EncodeToString(digest[:])[:24]
 }
 

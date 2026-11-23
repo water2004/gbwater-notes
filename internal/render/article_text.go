@@ -130,13 +130,13 @@ func rewriteHeadingLink(node *html.Node, redirect map[string]string) {
 	}
 }
 
-func buildCatalog(note app.Note, fragment string) (CatalogNote, error) {
+func buildCatalog(note app.Note, fragment string) (app.CatalogNote, error) {
 	nodes, err := parseArticle(fragment)
 	if err != nil {
-		return CatalogNote{}, err
+		return app.CatalogNote{}, err
 	}
 	var text strings.Builder
-	headings := []Heading{}
+	headings := []app.Heading{}
 	for _, root := range nodes {
 		prose(root, &text)
 		headings = appendHeading(headings, root)
@@ -150,21 +150,21 @@ func buildCatalog(note app.Note, fragment string) (CatalogNote, error) {
 	if characters > 180 {
 		excerpt = string([]rune(content)[:180])
 	}
-	return CatalogNote{
+	return app.CatalogNote{
 		ID: note.ID, Title: note.Title, Category: note.Category, CategoryTitle: note.CategoryTitle,
 		Course: note.Course, Slug: note.Slug, CourseSlug: note.CourseSlug, Order: note.Order, Draft: note.Draft,
 		Excerpt: excerpt, Characters: characters, ReadingMinutes: max(1, (characters+399)/400), Headings: headings,
 	}, nil
 }
 
-func appendHeading(headings []Heading, node *html.Node) []Heading {
+func appendHeading(headings []app.Heading, node *html.Node) []app.Heading {
 	level := headingLevel(node)
 	if level == 0 || level > 3 {
 		return headings
 	}
 	for _, attribute := range node.Attr {
 		if attribute.Key == "id" {
-			return append(headings, Heading{Level: level, Title: headingTitle(node), Slug: attribute.Val})
+			return append(headings, app.Heading{Level: level, Title: headingTitle(node), Slug: attribute.Val})
 		}
 	}
 	return headings

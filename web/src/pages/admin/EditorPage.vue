@@ -5,6 +5,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useHead } from '@unhead/vue'
 import { useTheme } from '@/lib/theme'
 import AppIcon from '@/components/AppIcon.vue'
+import BuildConfirmDialog from '@/components/BuildConfirmDialog.vue'
 import EditorImagesPanel from '@/components/EditorImagesPanel.vue'
 import RevisionDialog from '@/components/RevisionDialog.vue'
 import MarkdownEditor, { type MarkupAction } from '@/components/MarkdownEditor.vue'
@@ -20,6 +21,7 @@ import { findImageReferences, imageAltText, type ImageReference, type ImageTarge
 import { useEditorImageUploads } from '@/lib/editorImageUploads'
 import { composeMarkdown, downloadMarkdown, splitMarkdown } from '@/lib/editorMarkdown'
 import { ApiError } from '@/lib/api'
+import { buildResultLabel, listBuildHistory, useAdminPublish, type BuildReceipt, type BuildRecord } from '@/lib/adminPublish'
 import { findHeadings, type EditorHeading } from '@/lib/editorSyntax'
 import type { NativeDocument } from '@/types/content'
 
@@ -54,6 +56,7 @@ const displayCategoryName = computed(() => categoryOptions.value[category.value]
 const course = ref('')
 const order = ref(9999)
 const draft = ref(true)
+const savedDraft = ref(true)
 const body = ref('')
 const slug = ref('')
 const courseSlug = ref('')
@@ -83,6 +86,17 @@ let inspectorTrigger: HTMLElement | undefined
 const inspectorHeading = ref<HTMLElement>()
 const syncScroll = ref(true)
 const historyOpen = ref(false)
+const rebuildOpen = ref(false)
+const rebuild = ref<BuildReceipt>()
+const rebuildResult = ref<BuildRecord>()
+const { status: buildStatus, starting: startingBuild } = useAdminPublish()
+const rebuildLabel = computed(() => {
+  const task = rebuild.value
+  if (!task) return ''
+  if (rebuildResult.value) return buildResultLabel(rebuildResult.value)
+  if (buildStatus.value?.id === task.id && buildStatus.value.state === 'running') return '正在重建此篇'
+  return task.state === 'queued' ? '此篇重建已加入队列' : '此篇重建已提交'
+})
 const imageTab = ref<'used' | 'browse' | 'trash'>('used')
 const activeImage = ref<number>()
 const images = computed(() => findImageReferences(body.value))
@@ -234,6 +248,7 @@ async function load() {
       ])
       if (version !== loadVersion) return
       revision.value = document.note.revision
+      savedDraft.value = document.note.draft
       persistedContent.value = document.content
       applyDocument(document.content)
       slug.value = document.note.slug
@@ -291,6 +306,7 @@ async function save() {
       ? await createAdminNote(note, body.value)
       : await updateAdminNote(id.value, composedContent(), revision.value)
     revision.value = document.note.revision
+    savedDraft.value = document.note.draft
     persistedContent.value = document.content
     restored = undefined
     applyDocument(document.content)
@@ -611,9 +627,28 @@ watch([visibleMode, syncScroll], async () => {
   await nextTick()
   syncPreview(editor.value?.scrollRatio() ?? 0)
 })
+watch([rebuild, buildStatus], async ([task, status], _, onCleanup) => {
+  if (task?.mode !== 'note' || !status || rebuildResult.value || status.queue?.some(item => item.id === task.id)) return
+  if (status.id === task.id && status.state === 'running') return
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  try {
+    const record = (await listBuildHistory(controller.signal)).find(item => item.id === task.id)
+    if (!record || controller.signal.aborted) return
+    rebuildResult.value = record
+    if (record.state !== 'success') return
+    const rendered = await readNotePreview(task.noteId)
+    if (!controller.signal.aborted && task.noteId === id.value) native.value = rendered
+  } catch {
+    // The publish page provides the task history if the editor's refresh is interrupted.
+  }
+})
 watch(id, () => {
   clearTimeout(draftTimer)
   historyOpen.value = false
+  rebuildOpen.value = false
+  rebuild.value = undefined
+  rebuildResult.value = undefined
   closeInspector(false)
   previewHtml.value = ''
   activeImage.value = undefined
@@ -661,6 +696,7 @@ onBeforeUnmount(() => {
           <div>
             <button type="button" :disabled="saving" @click="openDocumentSettings"><AppIcon name="settings" :size="16" /> 文档设置</button>
             <button v-if="!isNew" type="button" :disabled="saving" @click="openHistory"><AppIcon name="history" :size="16" /> 历史版本</button>
+            <button v-if="!isNew" type="button" :disabled="saving || startingBuild || !buildStatus?.enabled" @click="rebuildOpen = true; documentMenu!.open = false"><AppIcon name="build" :size="16" /> 重建此篇…</button>
             <RouterLink v-if="!isNew && !draft" :to="notePath(slug)" target="_blank" rel="noopener" @click="documentMenu!.open = false"><AppIcon name="external" :size="16" /> 查看公开页</RouterLink>
             <button type="button" :disabled="saving || movingImage || !!uploading" @click="importInput?.click(); documentMenu!.open = false"><AppIcon name="upload" :size="16" /> 导入 Markdown</button>
             <button type="button" @click="downloadMarkdown(composedContent(), title); documentMenu!.open = false"><AppIcon name="download" :size="16" /> 下载 Markdown</button>
@@ -670,10 +706,19 @@ onBeforeUnmount(() => {
         <button class="button button-primary button-compact" :disabled="!loaded || !dirty || loading || saving || movingImage || !!uploading || conflict" aria-keyshortcuts="Control+S Meta+S" @click="save"><AppIcon name="check" :size="16" />{{ saving ? '保存中…' : queuedTrash.length ? '保存并回收' : '保存' }}</button>
       </div>
     </header>
+    <BuildConfirmDialog v-if="rebuildOpen" title="重建此篇" action="重建已保存版本" :request="{ mode: 'note', noteId: id }" @close="rebuildOpen = false" @submitted="rebuildResult = undefined; rebuild = $event; rebuildOpen = false">
+      <p v-if="savedDraft">重算这篇草稿的正文、公式和图表，供编辑预览。</p>
+      <p v-else>重算这篇笔记的正文、公式和图表，并更新公开页和相关目录。</p>
+      <p class="form-hint">{{ dirty || queuedTrash.length ? '编辑器里还有未保存的更改。本次使用服务器上的已保存版本。' : '任务使用执行时的最新已保存版本。' }}</p>
+    </BuildConfirmDialog>
 
     <p v-if="error" class="error-message" role="alert">
       {{ error }} <button v-if="conflict" class="text-link" @click="reloadAfterConflict">重新读取并保留本地草稿</button>
       <button v-else-if="!loaded && !loading" class="text-link" @click="load">重新读取</button>
+    </p>
+    <p v-if="rebuild" class="editor-notice" role="status">
+      {{ rebuildLabel }}<span v-if="rebuildResult?.error">{{ rebuildResult.error }}</span>
+      <RouterLink :to="{ path: '/admin/publish', query: { task: rebuild.id } }" class="text-link">查看任务 #{{ rebuild.id }}</RouterLink>
     </p>
     <p v-if="message" class="editor-notice" role="status">{{ message }}</p>
     <div v-if="pendingLocalDraft" class="local-draft-banner"><AppIcon name="history" :size="19" /><div><strong>发现未保存的本地草稿</strong><p>保存于 {{ formatTime(pendingLocalDraft.updatedAt) }}，可以恢复后继续编辑。</p></div><button class="button button-primary" @click="restoreLocalDraft">恢复草稿</button><button class="button button-quiet" @click="discardLocalDraft">放弃</button></div>

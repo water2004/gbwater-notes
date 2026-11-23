@@ -22,11 +22,11 @@ func TestPostgreSQLHistoryRoundTrip(t *testing.T) {
 	if err := history.RecordRevision(document, "create", nil); err != nil {
 		t.Fatal(err)
 	}
-	buildID, err := history.enqueueBuild(t.Context())
+	buildID, err := history.enqueueBuild(t.Context(), BuildRequest{Mode: BuildIncremental})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := history.updateQueuedBuild(t.Context(), BuildStatus{ID: buildID, State: "success", StartedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
+	if err := history.updateQueuedBuild(t.Context(), BuildStatus{BuildTask: BuildTask{ID: buildID}, State: "success", StartedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	revisions, err := history.RecentRevisions(t.Context(), document.Note.ID, 10)

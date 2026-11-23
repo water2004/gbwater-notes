@@ -15,7 +15,8 @@ var schemaSQL string
 type History struct{ db *sql.DB }
 
 type BuildRecord struct {
-	ID         int64     `json:"id"`
+	ID int64 `json:"id"`
+	BuildRequest
 	State      string    `json:"state"`
 	StartedAt  time.Time `json:"startedAt"`
 	FinishedAt time.Time `json:"finishedAt"`
@@ -142,28 +143,28 @@ func (h *History) indexDocument(db sqlExecer, document Document) error {
 	return err
 }
 
-func (h *History) enqueueBuild(ctx context.Context) (int64, error) {
+func (h *History) enqueueBuild(ctx context.Context, request BuildRequest) (int64, error) {
 	var id int64
-	err := h.db.QueryRowContext(ctx, `INSERT INTO builds(state, started_at, finished_at)
-		VALUES('queued', now(), now()) RETURNING id`).Scan(&id)
+	err := h.db.QueryRowContext(ctx, `INSERT INTO builds(state, started_at, finished_at, mode, note_id)
+		VALUES('queued', now(), now(), $1, $2) RETURNING id`, request.Mode, request.NoteID).Scan(&id)
 	return id, err
 }
 
-func (h *History) resumeBuildQueue(ctx context.Context) ([]int64, error) {
-	rows, err := h.db.QueryContext(ctx, `SELECT id FROM builds WHERE state IN ('queued','running') ORDER BY id`)
+func (h *History) resumeBuildQueue(ctx context.Context) ([]BuildTask, error) {
+	rows, err := h.db.QueryContext(ctx, `SELECT id, mode, note_id FROM builds WHERE state IN ('queued','running') ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var ids []int64
+	var tasks []BuildTask
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var task BuildTask
+		if err := rows.Scan(&task.ID, &task.Mode, &task.NoteID); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		tasks = append(tasks, task)
 	}
-	return ids, rows.Err()
+	return tasks, rows.Err()
 }
 
 func (h *History) updateQueuedBuild(ctx context.Context, status BuildStatus) error {
@@ -202,7 +203,7 @@ func (h *History) recordRevision(tx *sql.Tx, document Document, action string, b
 }
 
 func (h *History) RecentBuilds(ctx context.Context, limit int) ([]BuildRecord, error) {
-	rows, err := h.db.QueryContext(ctx, `SELECT id, state, started_at, finished_at, error FROM builds
+	rows, err := h.db.QueryContext(ctx, `SELECT id, mode, note_id, state, started_at, finished_at, error FROM builds
 		WHERE state IN ('success','failed') ORDER BY id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -211,7 +212,7 @@ func (h *History) RecentBuilds(ctx context.Context, limit int) ([]BuildRecord, e
 	result := []BuildRecord{}
 	for rows.Next() {
 		var record BuildRecord
-		if err := rows.Scan(&record.ID, &record.State, &record.StartedAt, &record.FinishedAt, &record.Error); err != nil {
+		if err := rows.Scan(&record.ID, &record.Mode, &record.NoteID, &record.State, &record.StartedAt, &record.FinishedAt, &record.Error); err != nil {
 			return nil, err
 		}
 		result = append(result, record)

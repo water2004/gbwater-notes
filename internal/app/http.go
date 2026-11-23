@@ -75,7 +75,7 @@ func NewServer(config Config) (*Server, error) {
 	server.builds = NewBuildManager(config.Root, config.BuildTimeout, config.BasePath, config.APIBasePath, server.history,
 		server.publicationInputs, server.prepareAnnotationPublication)
 	server.builds.SetOnFinish(func(status BuildStatus) {
-		if status.State == "success" {
+		if status.State == "success" && status.Mode != BuildNote {
 			server.SyncContent()
 		}
 	})
@@ -157,6 +157,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/public/popular-notes", s.popularNotes)
 
 	// 账号：注册、登录、会话、找回密码
+	s.mux.HandleFunc("GET /api/auth/registration", s.registrationOptions)
 	s.mux.HandleFunc("POST /api/auth/register", s.limitAuth("register", s.handleRegister))
 	s.mux.HandleFunc("POST /api/auth/login", s.limitAuth("login", s.handleLogin))
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)

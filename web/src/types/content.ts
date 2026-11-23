@@ -20,12 +20,20 @@ export interface NoteMeta {
   headings: Heading[]
 }
 
+export interface MathFrame {
+  width: number
+  height: number
+  align: number
+  space?: number
+  break?: 'soft' | 'hard'
+  layout?: number
+  view?: string
+}
+
 export interface MathEntry {
   tex: string
   display: boolean
-  width?: number
-  height?: number
-  baseline?: number
+  frames?: MathFrame[]
   error?: string
 }
 

@@ -41,9 +41,45 @@ type siteFile struct {
 	page   func() ([]byte, error)
 }
 
-type siteNote struct {
-	Title, Slug, Category, CategoryTitle, Course, CourseSlug, Excerpt string
-	Draft                                                             bool
+type Heading struct {
+	Level int    `json:"level"`
+	Title string `json:"title"`
+	Slug  string `json:"slug"`
+}
+
+type CatalogNote struct {
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Category       string    `json:"category"`
+	CategoryTitle  string    `json:"categoryTitle"`
+	Course         string    `json:"course"`
+	Slug           string    `json:"slug"`
+	CourseSlug     string    `json:"courseSlug"`
+	Order          int       `json:"order"`
+	Draft          bool      `json:"draft"`
+	Excerpt        string    `json:"excerpt"`
+	Characters     int       `json:"characters"`
+	ReadingMinutes int       `json:"readingMinutes"`
+	Headings       []Heading `json:"headings"`
+}
+
+func CompareCatalogNotes(a, b CatalogNote) int {
+	if order := strings.Compare(a.Category, b.Category); order != 0 {
+		return order
+	}
+	if order := strings.Compare(a.Course, b.Course); order != 0 {
+		return order
+	}
+	if a.Order != b.Order {
+		if a.Order < b.Order {
+			return -1
+		}
+		return 1
+	}
+	if order := strings.Compare(a.Title, b.Title); order != 0 {
+		return order
+	}
+	return strings.Compare(a.ID, b.ID)
 }
 
 type pageLink struct{ Title, Href, Summary string }
@@ -194,14 +230,13 @@ func InstallFrontend(config Config) error {
 	return nil
 }
 
-func planPublicPages(b siteBundle, publicDir string, rendered RenderedPublication) error {
+func planPublicPages(b siteBundle, settingsPath string, notes []CatalogNote) error {
 	var settings struct {
 		Brand          struct{ Name string }
 		Home           struct{ Title, Description string }
 		Library, About struct{ Title, Description, Lead string }
 	}
-	var notes []siteNote
-	rawSettings, err := os.ReadFile(filepath.Join(publicDir, "site-settings.json"))
+	rawSettings, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return err
 	}
@@ -210,9 +245,6 @@ func planPublicPages(b siteBundle, publicDir string, rendered RenderedPublicatio
 	}
 	categories, err := configuredCategories(rawSettings)
 	if err != nil {
-		return err
-	}
-	if err := readSiteJSON(filepath.Join(publicDir, "catalog.json"), &notes); err != nil {
 		return err
 	}
 	brand := settings.Brand.Name
@@ -238,14 +270,14 @@ func planPublicPages(b siteBundle, publicDir string, rendered RenderedPublicatio
 		courses[note.CourseSlug] = append(courses[note.CourseSlug], pageLink{Title: note.Title, Href: b.base + "notes/" + note.Slug + "/", Summary: note.Excerpt})
 		courseTitles[note.CourseSlug] = note.Course
 		article := "note-content/" + note.Slug + ".json"
-		digest := rendered.Files[article]
-		if digest == "" {
+		file := b.files[article]
+		if file.key == "" {
 			return fmt.Errorf("缺少正文产物: %s", note.Slug)
 		}
 		b.addPage("notes/"+note.Slug, pageContent{
 			Brand: brand, Title: note.Title, Description: note.Excerpt,
 			Links: []pageLink{{Title: note.Course, Href: b.base + "courses/" + note.CourseSlug + "/"}},
-		}, filepath.Join(publicDir, filepath.FromSlash(article)), digest)
+		}, file.source, file.key)
 	}
 	for id, configured := range categories {
 		subjects[id] = pageLink{Title: configured.Name, Href: b.base + "library/" + id + "/"}
@@ -335,15 +367,19 @@ func publishFrontend(ctx context.Context, root, base, api string, rendered Rende
 		return err
 	}
 	publicDir := filepath.Join(root, "web", "public")
-	if err := planPublicPages(bundle, publicDir, rendered); err != nil {
-		return err
-	}
 	for name, key := range rendered.Files {
 		if !validAssetPath(name) || key == "" ||
 			(name != "catalog.json" && !strings.HasPrefix(name, "note-content/") && !strings.HasPrefix(name, "generated/")) {
 			return fmt.Errorf("无效的渲染产物路径: %s", name)
 		}
 		bundle.files[name] = siteFile{key: key, source: filepath.Join(publicDir, filepath.FromSlash(name))}
+	}
+	var notes []CatalogNote
+	if err := readSiteJSON(filepath.Join(publicDir, "catalog.json"), &notes); err != nil {
+		return err
+	}
+	if err := planPublicPages(bundle, filepath.Join(publicDir, "site-settings.json"), notes); err != nil {
+		return err
 	}
 	for _, id := range assets {
 		if !validAssetPath(id) {

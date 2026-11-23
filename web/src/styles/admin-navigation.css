@@ -45,6 +45,13 @@
 .publish-page { max-width: 950px; }
 .publish-history { margin-top: 16px; }
 .publish-history .admin-panel-row > span { min-width: 0; overflow-wrap: anywhere; }
+.rebuild-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.rebuild-dialog { width: min(460px, calc(100% - 24px)); }
+.rebuild-dialog-body { display: grid; gap: 12px; padding: 16px 20px; }
+.rebuild-dialog-body p { margin: 0; }
+.build-record { display: grid; gap: 4px; }
+.build-record small { color: var(--text-soft); }
+.selected-build { outline: 1px solid var(--accent); outline-offset: -1px; border-radius: 8px; scroll-margin-block: 12px; }
 .user-management-dialog { width: min(480px, calc(100% - 24px)); }
 .user-management { min-height: 0; overflow: auto; padding: 16px 20px; }
 .user-management-identity { display: grid; gap: 4px; margin-bottom: 10px; }

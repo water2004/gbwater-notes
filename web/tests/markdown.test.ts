@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { markdownBody, renderMarkdown } from '@/lib/markdown'
 import { coursePath, headingSlug, initializeCatalog, notePath } from '@/lib/content'
+import type { NativeDocument } from '@/types/content'
 
-const native = {
+const native: NativeDocument = {
   math: {
-    formula: { tex: 'x^2', display: false, width: 20, height: 16, baseline: 13 },
-    display: { tex: '\\int_0^1 x dx', display: true, width: 100, height: 50, baseline: 30 },
-    cases: { tex: '\\begin{cases}\n        x&=1\\\\\n        x&=2\n    \\end{cases}', display: true, width: 80, height: 60, baseline: 35 },
+    formula: { tex: 'x^2', display: false, frames: [{ width: 1.2, height: .9, align: -.15 }] },
+    display: { tex: '\\int_0^1 x dx', display: true, frames: [{ width: 5, height: 2.5, align: -1 }] },
+    cases: { tex: '\\begin{cases}\n        x&=1\\\\\n        x&=2\n    \\end{cases}', display: true, frames: [{ width: 4, height: 3, align: -1.2 }] },
   },
   mermaid: {
     diagram: { source: 'flowchart TD\nA-->B', width: 100, height: 80 },
@@ -22,7 +23,7 @@ describe('Markdown native rendering', () => {
   it('renders inline and display math with intrinsic geometry', () => {
     const html = renderMarkdown('公式 $x^2$。\n\n$$\n\\int_0^1 x dx\n$$', native, '/mypdf/')
     expect(html).toContain('/mypdf/generated/math/formula.svg')
-    expect(html).toContain('vertical-align:-3.000px')
+    expect(html).toContain('vertical-align:-0.15em')
     expect(html).toContain('class="math-display"')
     expect(html).toContain('/mypdf/generated/math/display.svg')
     expect(html).toContain('alt=""')

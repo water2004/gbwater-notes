@@ -170,7 +170,7 @@ export function indexArticle(article: HTMLElement): TextIndex {
         nodes.push({ node: current as globalThis.Text, start: text.length, end: text.length + value.length })
         text += value
       }
-    } else if (current instanceof HTMLImageElement && current.classList.contains('math-image')) {
+    } else if (current instanceof HTMLImageElement && current.classList.contains('math-image') && current.getClientRects().length) {
       images.push({ element: current, offset: text.length })
     }
     current = walker.nextNode()

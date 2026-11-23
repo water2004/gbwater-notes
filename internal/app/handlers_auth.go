@@ -22,6 +22,19 @@ func userPayload(user *User) map[string]any {
 	return payload
 }
 
+func (s *Server) registrationOptions(w http.ResponseWriter, _ *http.Request) {
+	policy := s.authPolicy.snapshot()
+	domains := []string{}
+	if s.config.AllowRegister && policy.EmailMode == "allowlist" {
+		domains = policy.EmailDomains
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, struct {
+		Enabled      bool     `json:"enabled"`
+		EmailDomains []string `json:"emailDomains"`
+	}{s.config.AllowRegister, domains})
+}
+
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var input RegisterInput
 	if err := decodeJSON(w, r, &input); err != nil {

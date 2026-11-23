@@ -1,7 +1,7 @@
-# GBwater Notes 1.0.3
+# GBwater Notes 1.0.4
 
-- 生产镜像只携带 Go、Folia 和编译好的前端模板与静态资源。Go 安装登录和后台页面，并完成公开站点发布。
-- 开发和生产共用 Go 发布器。发布根据文件版本增量写入，先准备改动的产物，再替换公开文件。
-- 保留笔记、配图、图标和标注版本的发布流程，以及已有站点路径和 API 前缀配置。
+- 行内公式沿 Folia 给出的断点换行，行间公式随阅读区宽度调整排版。两种公式都随阅读字号缩放。
+- 编辑器可单独重建当前笔记，发布页可全站重建。任务共用队列，可查看范围、状态和结果。
+- 注册开启邮箱白名单时，用户可从下拉框选择允许的后缀。
 
-镜像为 `ghcr.io/water2004/gbwater-notes:1.0.3`，平台为 Linux amd64。已有部署可更新 `GBWATER_IMAGE`、重启 API，再从后台构建并发布。 [Linux 部署指南](https://github.com/water2004/gbwater-notes/blob/v1.0.3/docs/deployment.md)
+镜像为 `ghcr.io/water2004/gbwater-notes:1.0.4`，平台为 Linux amd64。已有部署更新 `GBWATER_IMAGE` 并重新启动 API 后，在后台点击一次「构建并发布」，即可更新公开页面和公式产物。 [Linux 部署指南](https://github.com/water2004/gbwater-notes/blob/v1.0.4/docs/deployment.md)

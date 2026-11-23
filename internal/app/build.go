@@ -9,18 +9,38 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
 
+type BuildMode string
+
+const (
+	BuildIncremental BuildMode = "incremental"
+	BuildNote        BuildMode = "note"
+	BuildAll         BuildMode = "all"
+)
+
+type BuildRequest struct {
+	Mode   BuildMode `json:"mode,omitempty"`
+	NoteID string    `json:"noteId,omitempty"`
+}
+
+type BuildTask struct {
+	ID int64 `json:"id,omitempty"`
+	BuildRequest
+}
+
 type BuildStatus struct {
-	ID         int64     `json:"id,omitempty"`
-	Queued     int       `json:"queued"`
-	State      string    `json:"state"`
-	StartedAt  time.Time `json:"startedAt,omitzero"`
-	FinishedAt time.Time `json:"finishedAt,omitzero"`
-	Log        string    `json:"log"`
-	Error      string    `json:"error,omitempty"`
+	BuildTask
+	Queued     int         `json:"queued"`
+	Queue      []BuildTask `json:"queue,omitempty"`
+	State      string      `json:"state"`
+	StartedAt  time.Time   `json:"startedAt,omitzero"`
+	FinishedAt time.Time   `json:"finishedAt,omitzero"`
+	Log        string      `json:"log"`
+	Error      string      `json:"error,omitempty"`
 }
 
 type BuildManager struct {
@@ -30,10 +50,10 @@ type BuildManager struct {
 	timeout            time.Duration
 	mu                 sync.Mutex
 	status             BuildStatus
-	queue              []int64
+	queue              []BuildTask
 	history            *History
 	onFinish           func(BuildStatus)
-	preparePublication func(context.Context, map[string]string) error
+	preparePublication func(context.Context, string, map[string]string) error
 	publicationInputs  func(context.Context) ([]Note, []string, error)
 }
 
@@ -51,10 +71,12 @@ type RenderJob struct {
 	Root     string
 	BasePath string
 	Notes    []Note
+	Force    bool
+	Output   string
 }
 
 func NewBuildManager(root string, timeout time.Duration, basePath, apiBasePath string, history *History,
-	publicationInputs func(context.Context) ([]Note, []string, error), preparePublication func(context.Context, map[string]string) error) *BuildManager {
+	publicationInputs func(context.Context) ([]Note, []string, error), preparePublication func(context.Context, string, map[string]string) error) *BuildManager {
 	if basePath == "" {
 		basePath = "/"
 	}
@@ -73,6 +95,7 @@ func (b *BuildManager) Status() BuildStatus {
 func (b *BuildManager) statusLocked() BuildStatus {
 	status := b.status
 	status.Queued = len(b.queue)
+	status.Queue = slices.Clone(b.queue)
 	return status
 }
 
@@ -97,18 +120,25 @@ func (b *BuildManager) Resume(ctx context.Context) error {
 	return nil
 }
 
-func (b *BuildManager) Start(ctx context.Context) (BuildStatus, error) {
+func (b *BuildManager) Start(ctx context.Context, request BuildRequest) (BuildStatus, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	id, err := b.history.enqueueBuild(ctx)
+	for _, task := range b.queue {
+		if task.BuildRequest == request {
+			return BuildStatus{BuildTask: task, State: "queued"}, nil
+		}
+	}
+	id, err := b.history.enqueueBuild(ctx, request)
 	if err != nil {
 		return b.statusLocked(), err
 	}
-	b.queue = append(b.queue, id)
+	task := BuildTask{ID: id, BuildRequest: request}
+	b.queue = append(b.queue, task)
 	if b.status.State != "running" {
 		b.startNext()
+		return b.statusLocked(), nil
 	}
-	return b.statusLocked(), nil
+	return BuildStatus{BuildTask: task, State: "queued"}, nil
 }
 
 // startNext is called with the mutex held, after the previous task has finished.
@@ -116,9 +146,9 @@ func (b *BuildManager) startNext() {
 	if len(b.queue) == 0 {
 		return
 	}
-	id := b.queue[0]
+	task := b.queue[0]
 	b.queue = b.queue[1:]
-	b.status = BuildStatus{ID: id, State: "running", StartedAt: time.Now()}
+	b.status = BuildStatus{BuildTask: task, State: "running", StartedAt: time.Now()}
 	go b.run(b.status, b.onFinish)
 }
 
@@ -138,11 +168,9 @@ func (w buildWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func (b *BuildManager) build(ctx context.Context) error {
-	settingsPath := filepath.Join(b.root, "web", "public", "site-settings.json")
-	if err := b.history.ExportPublicSettings(ctx, settingsPath); err != nil {
-		return fmt.Errorf("导出站点设置: %w", err)
-	}
+func (b *BuildManager) build(ctx context.Context, request BuildRequest) error {
+	public := filepath.Join(b.root, "web", "public")
+	generated := filepath.Join(b.root, "web", "src", "generated")
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -159,24 +187,50 @@ func (b *BuildManager) build(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	job, _ := json.Marshal(RenderJob{Root: b.root, BasePath: b.basePath, Notes: notes})
-	render := exec.CommandContext(ctx, executable, RenderWorkerArg)
-	render.Dir = b.root
-	render.Stdin = bytes.NewReader(job)
-	if err := run(render); err != nil {
-		return err
+	job := RenderJob{Root: b.root, BasePath: b.basePath, Notes: notes, Force: request.Mode != BuildIncremental}
+	if request.Mode == BuildNote {
+		index := slices.IndexFunc(notes, func(note Note) bool { return note.ID == request.NoteID })
+		if index < 0 {
+			return fmt.Errorf("笔记已移除: %s", request.NoteID)
+		}
+		job.Notes = notes[index : index+1]
+		if err := os.MkdirAll(generated, 0o755); err != nil {
+			return err
+		}
+		job.Output, err = os.MkdirTemp(generated, ".note-build-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(job.Output)
+	} else if err := b.history.ExportPublicSettings(ctx, filepath.Join(public, "site-settings.json")); err != nil {
+		return fmt.Errorf("导出站点设置: %w", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(b.root, "web", "src", "generated", RenderManifest))
+	payload, err := json.Marshal(job)
 	if err != nil {
 		return err
 	}
-	var manifest RenderedPublication
-	if err := json.Unmarshal(raw, &manifest); err != nil {
+	render := exec.CommandContext(ctx, executable, RenderWorkerArg)
+	render.Dir = b.root
+	render.Stdin = bytes.NewReader(payload)
+	if err := run(render); err != nil {
 		return err
 	}
-	if err := b.preparePublication(ctx, manifest.Versions); err != nil {
-		b.appendLog(fmt.Sprintf("\n[annotations] %v\n", err))
+	state, output := generated, public
+	if job.Output != "" {
+		state, output = job.Output, job.Output
+	}
+	var manifest RenderedPublication
+	if err := readSiteJSON(filepath.Join(state, RenderManifest), &manifest); err != nil {
 		return err
+	}
+	if len(manifest.Versions) > 0 {
+		if err := b.preparePublication(ctx, output, manifest.Versions); err != nil {
+			b.appendLog(fmt.Sprintf("\n[annotations] %v\n", err))
+			return err
+		}
+	}
+	if request.Mode == BuildNote {
+		return publishSingleNote(ctx, b.root, b.basePath, b.apiBasePath, output, job.Notes[0], manifest, assets, buildWriter{manager: b})
 	}
 	return publishFrontend(ctx, b.root, b.basePath, b.apiBasePath, manifest, assets, buildWriter{manager: b})
 }
@@ -186,7 +240,7 @@ func (b *BuildManager) run(started BuildStatus, onFinish func(BuildStatus)) {
 	defer cancel()
 	runErr := b.history.updateQueuedBuild(ctx, started)
 	if runErr == nil {
-		runErr = b.build(ctx)
+		runErr = b.build(ctx, started.BuildRequest)
 	}
 	if runErr != nil && ctx.Err() != nil {
 		runErr = fmt.Errorf("构建超时: %w", ctx.Err())

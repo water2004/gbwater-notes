@@ -113,11 +113,17 @@ export function createMarkdownRenderer(native: NativeDocument = emptyNative, bas
 
   function renderMath(tex: string, display: boolean): string {
     const found = math.get(`${display ? '1' : '0'}\0${normalizedTex(tex)}`)
-    if (!found || found.entry.error || !found.entry.width || !found.entry.height) {
+    if (!found || found.entry.error || !found.entry.frames?.length) {
       return '<span class="math-fallback">公式未渲染</span>'
     }
-    const { width, height, baseline = height } = found.entry
-    const image = `<img class="math-image" src="${assetBase}generated/math/${found.key}.svg" alt="" width="${width}" height="${height}" style="vertical-align:${(baseline - height).toFixed(3)}px" loading="lazy" decoding="async">`
+    const image = found.entry.frames.map(frame => {
+      const gap = frame.space ? `<span class="math-gap" style="width:${frame.space}em"></span>` : ''
+      const split = frame.break === 'hard' ? '<br>' : frame.break === 'soft' ? '<wbr>' : ''
+      const className = frame.layout ? `math-image math-layout-${frame.layout}` : 'math-image'
+      const view = frame.view ? `#${frame.view}` : ''
+      const style = `width:${frame.width}em;aspect-ratio:${frame.width}/${frame.height};vertical-align:${frame.align}em`
+      return `${gap}${split}<img class="${className}" src="${assetBase}generated/math/${found.key}.svg${view}" alt="" style="${style}" loading="lazy" decoding="async">`
+    }).join('')
     return display
       ? `<div class="math-display" role="math" aria-label="公式">${image}</div>`
       : `<span class="math-inline" role="math" aria-label="公式">${image}</span>`

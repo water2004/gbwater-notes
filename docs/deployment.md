@@ -1,15 +1,15 @@
-# GBwater Notes v1.0.3 Linux 部署
+# GBwater Notes v1.0.4 Linux 部署
 
-使用已发布的 `ghcr.io/water2004/gbwater-notes:1.0.3` 镜像，平台为 `linux/amd64`。宿主机 nginx 托管 `./frontend/`，Compose 运行 Go API、PostgreSQL 和 Meilisearch。 [GitHub Release 与镜像摘要](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.3)
+使用已发布的 `ghcr.io/water2004/gbwater-notes:1.0.4` 镜像，平台为 `linux/amd64`。宿主机 nginx 托管 `./frontend/`，Compose 运行 Go API、PostgreSQL 和 Meilisearch。 [GitHub Release 与镜像摘要](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.4)
 
 下文命令都在部署目录执行。持久化数据使用 Compose 文件同级的目录，服务之间由 Compose 自动组网。 [Compose 默认网络](https://docs.docker.com/compose/how-tos/networking/)
 
 ## 首次启动
 
-在 Linux 主机安装 Docker Engine、Compose 插件和 nginx。进入打算存放站点和数据的目录，下载 v1.0.3 的部署文件。
+在 Linux 主机安装 Docker Engine、Compose 插件和 nginx。进入打算存放站点和数据的目录，下载 v1.0.4 的部署文件。
 
 ```bash
-gbwater_deploy_src=https://raw.githubusercontent.com/water2004/gbwater-notes/v1.0.3
+gbwater_deploy_src=https://raw.githubusercontent.com/water2004/gbwater-notes/v1.0.4
 mkdir -p deploy
 curl -fsSLo docker-compose.yml "$gbwater_deploy_src/docker-compose.yml"
 curl -fsSLo deploy/compose.env.example "$gbwater_deploy_src/deploy/compose.env.example"
@@ -68,7 +68,7 @@ curl -fsS https://notes.example.com/mypdf/api/health
 
 ## 更新正在运行的站点
 
-在原部署目录将 `.env` 的 `GBWATER_IMAGE` 改为 `ghcr.io/water2004/gbwater-notes:1.0.3`。现有 Compose 继续使用原目录来挂载笔记、图床、数据库、搜索索引和静态文件。
+在原部署目录将 `.env` 的 `GBWATER_IMAGE` 改为 `ghcr.io/water2004/gbwater-notes:1.0.4`。现有 Compose 继续使用原目录来挂载笔记、图床、数据库、搜索索引和静态文件。
 
 ```bash
 docker compose pull api

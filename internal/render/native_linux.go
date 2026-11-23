@@ -3,7 +3,6 @@ package render
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"unicode/utf16"
 	"unsafe"
 
@@ -15,7 +14,8 @@ type nativeMath struct {
 	renderer, cancel   unsafe.Pointer
 	create             func(*unsafe.Pointer) int32
 	createCancellation func(*unsafe.Pointer) int32
-	render             func(unsafe.Pointer, *uint16, uintptr, float64, float64, unsafe.Pointer, uint32, *unsafe.Pointer) int32
+	render             func(unsafe.Pointer, *uint16, uintptr, int32, float64, float64, unsafe.Pointer, uint32, *unsafe.Pointer) int32
+	fragment           func(unsafe.Pointer, *uint16, uintptr, float64, float64, unsafe.Pointer, uint32, *unsafe.Pointer) int32
 	svg, detail        func(unsafe.Pointer, *uintptr) *byte
 	metrics            func(unsafe.Pointer, *svgMetrics) int32
 	freeResult         func(unsafe.Pointer)
@@ -36,7 +36,8 @@ func openMath(path string) (mathRenderer, error) {
 	if err := registerExports(lib, map[string]any{
 		"FoliaNativeMathRendererCreate":        &renderer.create,
 		"FoliaNativeMathCancellationCreate":    &renderer.createCancellation,
-		"FoliaNativeMathRenderSvgFragment":     &renderer.render,
+		"FoliaNativeMathRenderSvg":             &renderer.render,
+		"FoliaNativeMathRenderSvgFragment":     &renderer.fragment,
 		"FoliaNativeMathResultSvg":             &renderer.svg,
 		"FoliaNativeMathResultError":           &renderer.detail,
 		"FoliaNativeMathResultFragmentMetrics": &renderer.metrics,
@@ -58,32 +59,40 @@ func openMath(path string) (mathRenderer, error) {
 	return renderer, nil
 }
 
-func (m *nativeMath) Render(tex string, _ bool) (string, float64, float64, float64, error) {
+func (m *nativeMath) Render(tex string, mode mathMode, width float64) (mathSVG, error) {
 	units := utf16.Encode([]rune(tex))
 	var result unsafe.Pointer
-	status := m.render(m.renderer, unsafe.SliceData(units), uintptr(len(units)), 18, 1120, m.cancel, 15000, &result)
+	var status int32
+	if mode == mathStandalone {
+		status = m.fragment(m.renderer, unsafe.SliceData(units), uintptr(len(units)), mathEm, width, m.cancel, 15000, &result)
+	} else {
+		status = m.render(m.renderer, unsafe.SliceData(units), uintptr(len(units)), int32(mode), mathEm, width, m.cancel, 15000, &result)
+	}
 	if result == nil {
-		return "", 0, 0, 0, fmt.Errorf("Folia 未返回公式 (状态 %d)", status)
+		return mathSVG{}, fmt.Errorf("Folia 未返回公式 (状态 %d)", status)
 	}
 	defer m.freeResult(result)
 
 	var size uintptr
 	if detail := m.detail(result, &size); size != 0 {
-		return "", 0, 0, 0, errors.New(nativeText(detail, size))
+		return mathSVG{}, errors.New(nativeText(detail, size))
 	}
 	if status != 0 {
-		return "", 0, 0, 0, fmt.Errorf("Folia 数学渲染状态 %d", status)
+		return mathSVG{}, fmt.Errorf("Folia 数学渲染状态 %d", status)
 	}
 	data := m.svg(result, &size)
-	svg := nativeText(data, size)
+	svg := mathSVG{source: nativeText(data, size)}
+	if svg.source == "" {
+		return mathSVG{}, errors.New("Folia 未返回 SVG")
+	}
 	var metrics svgMetrics
-	if svg == "" || m.metrics(result, &metrics) == 0 {
-		return "", 0, 0, 0, errors.New("Folia 未返回 SVG 或公式尺寸")
+	if mode == mathStandalone {
+		if m.metrics(result, &metrics) == 0 {
+			return mathSVG{}, errors.New("Folia 未返回公式尺寸")
+		}
+		svg.width, svg.height, svg.baseline = metrics.width, metrics.height, metrics.baseline
 	}
-	if unknown := unknownMathCommands(svg); len(unknown) > 0 {
-		return "", 0, 0, 0, fmt.Errorf("公式渲染错误: %s", strings.Join(unknown, ", "))
-	}
-	return svg, metrics.width, metrics.height, metrics.baseline, nil
+	return svg, nil
 }
 
 func (m *nativeMath) Close() {

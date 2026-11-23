@@ -15,11 +15,12 @@ func TestBuildQueueResumesAndContinuesAfterFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer history.Close()
-	id, err := history.enqueueBuild(t.Context())
+	firstRequest := BuildRequest{Mode: BuildNote, NoteID: "math/test/target"}
+	id, err := history.enqueueBuild(t.Context(), firstRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := history.updateQueuedBuild(t.Context(), BuildStatus{ID: id, State: "running", StartedAt: time.Now()}); err != nil {
+	if err := history.updateQueuedBuild(t.Context(), BuildStatus{BuildTask: BuildTask{ID: id}, State: "running", StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	started := make(chan struct{}, 2)
@@ -41,9 +42,14 @@ func TestBuildQueueResumesAndContinuesAfterFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForBuildEvent(t, started)
-	status, err := builder.Start(t.Context())
-	if err != nil || status.ID != id || status.Queued != 1 {
+	request := BuildRequest{Mode: BuildAll}
+	status, err := builder.Start(t.Context(), request)
+	if err != nil || status.ID == id || status.State != "queued" || status.Mode != BuildAll {
 		t.Fatalf("enqueue while active: %+v, %v", status, err)
+	}
+	duplicate, err := builder.Start(t.Context(), request)
+	if err != nil || duplicate.ID != status.ID || builder.Status().Queued != 1 {
+		t.Fatalf("duplicate queue request: %+v, %v", duplicate, err)
 	}
 	select {
 	case <-started:
@@ -51,19 +57,19 @@ func TestBuildQueueResumesAndContinuesAfterFailure(t *testing.T) {
 	default:
 	}
 	pending, err := history.resumeBuildQueue(t.Context())
-	if err != nil || len(pending) != 2 || pending[0] != id {
+	if err != nil || len(pending) != 2 || pending[0].ID != id || pending[0].BuildRequest != firstRequest || pending[1].BuildRequest != request {
 		t.Fatalf("persisted queue: %v, %v", pending, err)
 	}
 	proceed <- struct{}{}
 	first := waitForBuildEvent(t, finished)
 	waitForBuildEvent(t, started)
 	status = builder.Status()
-	if status.ID != pending[1] || status.Queued != 0 {
+	if status.ID != pending[1].ID || status.Queued != 0 {
 		t.Fatalf("queue did not advance: %+v", status)
 	}
 	proceed <- struct{}{}
 	second := waitForBuildEvent(t, finished)
-	if first.ID != id || second.ID != pending[1] || first.State != "failed" || second.State != "failed" {
+	if first.ID != id || first.BuildRequest != firstRequest || second.ID != pending[1].ID || first.State != "failed" || second.State != "failed" {
 		t.Fatalf("queue completion: %+v, %+v", first, second)
 	}
 }
