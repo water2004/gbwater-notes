@@ -25,7 +25,7 @@ func TestBuildQueueResumesAndContinuesAfterFailure(t *testing.T) {
 	started := make(chan struct{}, 2)
 	proceed := make(chan struct{})
 	finished := make(chan BuildStatus, 2)
-	builder := NewBuildManager(t.TempDir(), 10*time.Second, "/", history,
+	builder := NewBuildManager(t.TempDir(), 10*time.Second, "/", "/api/", history,
 		func(ctx context.Context) ([]Note, []string, error) {
 			started <- struct{}{}
 			select {

@@ -7,13 +7,12 @@ data/
 migration/work/
 web/node_modules/
 web/dist/
-web/.vite-ssg-temp/
-web/.dist-build-*/
-web/.build-lock/
-web/.build-cache.json
+web/compiled/
 web/src/generated/
 web/public/generated/
 web/public/catalog.json
+web/public/site-settings.json
+web/public/site-icon.svg
 web/public/note-content/
 web/public/content-assets/
 *.exe

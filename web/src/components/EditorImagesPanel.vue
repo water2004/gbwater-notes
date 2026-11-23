@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { siteBase } from '@/lib/paths'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import {
@@ -51,7 +52,7 @@ const panelClose = ref<HTMLButtonElement>()
 const detail = ref<HTMLElement>()
 const alt = ref('')
 const requests = new AbortController()
-const base = import.meta.env.BASE_URL
+const base = siteBase
 const selected = computed(() => props.active === undefined ? undefined : props.references[props.active])
 const selectedId = computed(() => selected.value ? editorImageId(selected.value.url, base) : selectedFile.value)
 const usedIds = computed(() => new Set(props.references.map(image => editorImageId(image.url, base))))

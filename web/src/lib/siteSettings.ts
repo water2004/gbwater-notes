@@ -73,7 +73,6 @@ export function normalizeSiteSettings(value: unknown) {
   settings.categories = readCategories(value && typeof value === 'object' && 'categories' in value ? value.categories : undefined)
   return settings
 }
-const generatedSettings = import.meta.glob('../generated/site-settings.json', { eager: true, import: 'default' })
-export const siteSettings = reactive(normalizeSiteSettings(generatedSettings['../generated/site-settings.json']))
+export const siteSettings = reactive(cloneDefaults())
 export function defaultSiteSettings() { return cloneDefaults() }
 export function formatMinutes(template: string, minutes: number) { return template.replace('{minutes}', String(minutes)) }

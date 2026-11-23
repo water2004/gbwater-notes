@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { siteBase } from '@/lib/paths'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
@@ -126,7 +127,7 @@ const toolbar: { action: MarkupAction; label: string; title: string }[] = [
 const primaryTools = toolbar.filter(item => ['bold', 'italic', 'heading', 'unordered', 'link', 'inlineMath'].includes(item.action))
 const dirty = computed(() => savedSnapshot.value !== '' && snapshot() !== savedSnapshot.value)
 const statusText = computed(() => saving.value ? '正在保存…' : dirty.value ? '有未保存更改' : lastSavedAt.value ? `已保存 ${lastSavedAt.value}` : '内容已同步')
-const assetBase = import.meta.env.BASE_URL
+const assetBase = siteBase
 const previewHtml = ref('')
 const headings = computed(() => findHeadings(body.value))
 const currentHeading = computed(() => {

@@ -30,5 +30,4 @@ web/src/generated/
 !web/public
 !web/public/favicon.svg
 !deploy
-!deploy/docker-entrypoint.sh
 !deploy/prepare-folia.mjs

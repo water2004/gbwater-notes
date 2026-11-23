@@ -1,6 +1,6 @@
 # 碧山秋云 · GBwater Notes
 
-面向课程笔记的静态站和 Markdown 工作台。后台 Go 服务调用 Folia 生成正文、公式和 Mermaid SVG，Vite SSG 生成页面，nginx 托管静态文件并转发配置的 API 路径。
+面向课程笔记的静态站和 Markdown 工作台。Vue 在开发和镜像构建阶段编译。Go 调用 Folia 生成正文、公式和 Mermaid SVG，再使用编译模板写入静态页面。nginx 托管这些文件并转发配置的 API 路径。
 
 笔记支持分学科和课程浏览、搜索、划线和便签。管理员可直接编辑 Markdown、对比历史版本、管理单篇配图及发布站点。正文更新时只替换实际变化的发布文件。
 
@@ -8,7 +8,7 @@
 
 部署方式沿用 Element Skin 的结构。Compose 运行 Go API、PostgreSQL 和 Meilisearch，宿主机 nginx 读取 `./frontend`。新版镜像在启动时按部署路径安装登录和管理后台。公开页在后台点击「构建并发布」后增量更新。
 
-Linux amd64 镜像为 `ghcr.io/water2004/gbwater-notes:1.0.2`。 [部署指南](docs/deployment.md) · [GitHub Release](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.2)
+Linux amd64 镜像为 `ghcr.io/water2004/gbwater-notes:1.0.3`。 [部署指南](docs/deployment.md) · [GitHub Release](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.3)
 
 ## 本地开发
 
@@ -27,10 +27,11 @@ CC=clang-21 CXX=clang++-21 cmake -S native/folia_bridge -B data/folia-bridge-bui
   -DCMAKE_CXX_STDLIB_MODULES_JSON=/usr/lib/llvm-21/lib/libc++.modules.json \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 cmake --build data/folia-bridge-build --target folia_md FoliaNativeMath FoliaNativeMermaid --parallel 3
+npm --prefix web run build
 go run ./cmd/gbwater
 ```
 
-在 `.env` 填写本地数据库、搜索和管理员配置。在另一终端运行 `npm --prefix web run dev`，打开 [本地后台](http://127.0.0.1:5173/mypdf/admin) 并执行首次构建。笔记源文件放在 `content/学科/课程/标题.md`，图床原图由后台管理。
+在 `.env` 填写本地数据库、搜索和管理员配置。在另一终端运行 `npm --prefix web run dev`，打开 [本地后台](http://127.0.0.1:5173/mypdf/admin) 并执行首次构建。开发和生产使用同一个 Go 发布器，发布产物写到 `web/dist/`。Vite 开发服务器用于 Vue 热更新。笔记源文件放在 `content/学科/课程/标题.md`，图床原图由后台管理。
 
 ## 测试与发布
 
@@ -40,7 +41,7 @@ go test ./...
 go test -tags integration ./internal/app
 npm --prefix web run typecheck
 npm --prefix web test
-npm --prefix web run test:build
+npm --prefix web run build
 ```
 
 在 GitHub 发布指向 `main` 提交的正式 `vX.Y.Z` Release 后，Actions 才运行测试和镜像构建，通过后发布到 GHCR，并把镜像摘要记录在 Release。平时可用上面的命令在本地检查。

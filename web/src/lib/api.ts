@@ -1,3 +1,5 @@
+import { apiBase } from './paths'
+
 export class ApiError extends Error {
   status: number
   code: string
@@ -18,7 +20,7 @@ type ApiRequest = Omit<RequestInit, 'body'> &
 type ApiPath = `/${string}`
 
 export function apiUrl(path: ApiPath): string {
-  return `${import.meta.env.VITE_API_BASE_PATH}${path.slice(1)}`
+  return `${apiBase}${path.slice(1)}`
 }
 
 async function requestApi(path: ApiPath, { json, file, ...options }: ApiRequest, accept: string) {

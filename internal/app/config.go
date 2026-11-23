@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,8 @@ type Config struct {
 	MeiliKey      string
 	SiteURL       string
 	// BasePath 是静态资源、前端路由和邮件链接共用的站点挂载路径。
-	BasePath string
+	BasePath    string
+	APIBasePath string
 	// BuildEnabled 控制此 Go 服务是否运行后台构建任务。
 	BuildEnabled   bool
 	SecureCookie   bool
@@ -81,6 +83,10 @@ func LoadConfig(root string) (Config, error) {
 	basePath := os.Getenv("GBWATER_BASE_PATH")
 	if basePath == "" {
 		basePath = "/mypdf/"
+	}
+	basePath, apiBasePath, err := publicPaths(basePath, os.Getenv("GBWATER_API_BASE_PATH"))
+	if err != nil {
+		return Config{}, err
 	}
 	sessionTTL := 30 * 24 * time.Hour
 	if value := os.Getenv("GBWATER_SESSION_TTL_HOURS"); value != "" {
@@ -141,7 +147,8 @@ func LoadConfig(root string) (Config, error) {
 		MeiliURL:       meiliURL,
 		MeiliKey:       os.Getenv("GBWATER_MEILISEARCH_KEY"),
 		SiteURL:        strings.TrimRight(siteURL, "/"),
-		BasePath:       normalizeBasePath(basePath),
+		BasePath:       basePath,
+		APIBasePath:    apiBasePath,
 		BuildEnabled:   os.Getenv("GBWATER_BUILD_ENABLED") != "false",
 		SecureCookie:   production,
 		BuildTimeout:   15 * time.Minute,
@@ -158,19 +165,36 @@ func (c Config) DataDir() string    { return filepath.Join(c.Root, "data") }
 // SiteLink 返回站点绝对地址，用于邮件等站外链接。
 func (c Config) SiteLink() string { return strings.TrimRight(c.SiteURL, "/") + c.BasePath }
 
-// normalizeBasePath 保证形如 /sub/path/ 的前后斜杠，避免前端拼出 // 或缺失路径。
-func normalizeBasePath(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "/"
+var publicPathSegment = regexp.MustCompile(`^[A-Za-z0-9_.~-]+$`)
+
+func publicPaths(site, api string) (string, string, error) {
+	normalize := func(value, name string) (string, error) {
+		value = strings.Trim(strings.TrimSpace(value), "/")
+		if value == "" {
+			return "/", nil
+		}
+		for _, segment := range strings.Split(value, "/") {
+			if !publicPathSegment.MatchString(segment) || segment == "." || segment == ".." {
+				return "", fmt.Errorf("%s 必须是站内目录路径", name)
+			}
+		}
+		return "/" + value + "/", nil
 	}
-	if !strings.HasPrefix(value, "/") {
-		value = "/" + value
+	site, err := normalize(site, "GBWATER_BASE_PATH")
+	if err != nil {
+		return "", "", err
 	}
-	if !strings.HasSuffix(value, "/") {
-		value += "/"
+	if strings.TrimSpace(api) == "" {
+		api = site + "api/"
 	}
-	return value
+	api, err = normalize(api, "GBWATER_API_BASE_PATH")
+	if err != nil {
+		return "", "", err
+	}
+	if strings.HasPrefix(site, api) {
+		return "", "", fmt.Errorf("API 前缀须与站点页面路径区分")
+	}
+	return site, api, nil
 }
 
 // loadDotEnv 读取仓库根目录的 .env，仅补充进程里尚未设置的变量。

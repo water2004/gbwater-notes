@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { siteBase } from '@/lib/paths'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { acceptedImages, assetPreviewURL, imageMarkdown, imagePath, listAssetReferences, listAssets, moveAsset, uploadAsset, type AdminAsset, type AssetReference } from '@/lib/adminAssets'
@@ -22,7 +23,6 @@ const error = ref('')
 const input = ref<HTMLInputElement>()
 let request: AbortController | undefined
 let usageRequest: AbortController | undefined
-const siteBase = import.meta.env.BASE_URL
 
 const matches = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()

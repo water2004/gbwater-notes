@@ -36,14 +36,6 @@ server {
         try_files $uri =404;
     }
 
-    location /mypdf/admin-assets/ {
-        alias /var/www/gbwater/frontend/admin-assets/;
-        add_header Cache-Control "no-store" always;
-        etag off;
-        if_modified_since off;
-        try_files $uri =404;
-    }
-
     location /mypdf/generated/ {
         alias /var/www/gbwater/frontend/generated/;
         add_header Cache-Control "public, max-age=2592000, immutable";

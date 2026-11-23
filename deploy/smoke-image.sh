@@ -37,8 +37,8 @@ test -s frontend/login/index.html
 test -s frontend/admin/editor/index.html
 test -s frontend/favicon.svg
 grep -qF '/mypdf/favicon.svg' frontend/login/index.html
-grep -qF '/mypdf/admin-assets/' frontend/login/index.html
-grep -rqF '/mypdf/api/' frontend/admin-assets
+grep -qF '/mypdf/assets/' frontend/login/index.html
+grep -qF 'data-api-base="/mypdf/api/"' frontend/login/index.html
 test ! -e frontend/index.html
 sudo test -s data/db/18/docker/PG_VERSION
 test -d data/meilisearch/data.ms

@@ -4,8 +4,8 @@
 
 站点是「静态页面 + Go API」：
 
-- **构建期**：Linux Go 服务调用 Folia 生成正文 HTML、公式、Mermaid SVG 和目录，然后由 Vite SSG 生成静态页面。
-- **运行期**：nginx 托管静态页面，将公开 API 前缀代理到 Go 的 `/api/*`，包括账号、标注和搜索。
+- **前端编译**：开发机和镜像构建阶段用 Vite 编译 Vue，生成一份 HTML 模板和浏览器资源。
+- **运行期**：Go 用编译模板安装登录和后台页面，调用 Folia 渲染内容并增量发布静态文件。nginx 托管文件，将公开 API 前缀代理到 Go 的 `/api/*`。
 
 ```
 浏览器 ──静态页/预渲染 HTML── nginx
@@ -22,7 +22,8 @@
 | `internal/render/` | 构建期编排：native SVG、HTML 片段注入、catalog |
 | `internal/app/` | HTTP 服务、内容写入、PostgreSQL、Meilisearch、认证、标注 |
 | `web/` | Vue 3 页面与组件；文章正文不进入客户端 bundle |
-| `web/src/generated/` | 后台构建生成的渲染缓存和配置快照 |
+| `web/compiled/` | 开发阶段编译的 HTML 模板和浏览器资源 |
+| `web/src/generated/` | Go 渲染缓存和发布清单 |
 | `web/public/generated/` | 公式/Mermaid SVG（忽略提交） |
 
 ## 文章生成管线
@@ -34,7 +35,7 @@
    - 从渲染后 HTML 提取摘要、章节标题和锚点，略过公式、图片、图表和代码。
    - 输出 `web/public/catalog.json` 和 `web/public/note-content/<slug>.json`。
      正文 JSON 同时包含 HTML 和对应版本。渲染缓存保存在 `web/src/generated/`，未修改的内容复用 HTML、摘要、目录和正文版本。
-3. `vite-ssg` 根据各页面依赖的正文、目录数据与共享前端资源生成需要更新的页面。发布器沿用上次发布记录，按构建清单复制或移除文件。没有页面输入变化时直接复用前端构建。
+3. Go 根据页面模板、目录数据和正文版本生成改动的页面。发布清单记录各文件的输入版本，只写入变化的产物并移除已撤下的页面或资源。站点设置和图标通过各自的静态文件更新。
 
 **Folia 的角色**：只做 Markdown 解析、数学/Mermaid 原生渲染；不使用它的
 `folia::core.exporter`。HTML writer 在 `native/folia_bridge/bridge.cpp`，负责把 AST
@@ -44,14 +45,13 @@
 
 - 内容不打包进客户端，降低首屏体积；
 - 公式/Mermaid 只渲染一次，页面无需加载 KaTeX/Mermaid；
-- 文章 HTML 与站点样式在构建期确定，SSG 直接复用。
+- 文章 HTML 直接写入公开页。Vue 挂载时复用这份正文并加载阅读交互。
 
 内容更新通过后台「构建并发布」生成。Go 在任务子进程里加载原生库，构建超时可终止该子进程。
 
 ## 前端文章加载
 
-- 首次打开笔记页：`main.ts` 在挂载前把 SSR HTML 里的 `.note-article` 内容取走，避免
-  Vue 挂载清空；
+- 首次打开笔记页：`main.ts` 在挂载前读取 Go 写入的 `.note-article` 和正文版本；
 - 站内切换笔记请求 `note-content/<slug>.json`。开发服务器通过 Vite 的 `public/` 目录
   提供正文，生产托管发布目录里的同一份 JSON。
 

@@ -1,13 +1,13 @@
 {
   "name": "gbwater-notes",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "test:build": "node tests/build.integration.mjs"
+    "build": "vite build"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
@@ -33,12 +33,8 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^6.0.0",
-    "beasties": "^0.3.5",
-    "prettier": "^3.8.1",
-    "proper-lockfile": "^4.1.2",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",
-    "vite-ssg": "^28.3.0",
     "vitest": "^4.1.0",
     "vue-tsc": "^3.3.14"
   }

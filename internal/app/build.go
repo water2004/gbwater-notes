@@ -26,6 +26,7 @@ type BuildStatus struct {
 type BuildManager struct {
 	root               string
 	basePath           string
+	apiBasePath        string
 	timeout            time.Duration
 	mu                 sync.Mutex
 	status             BuildStatus
@@ -52,13 +53,13 @@ type RenderJob struct {
 	Notes    []Note
 }
 
-func NewBuildManager(root string, timeout time.Duration, basePath string, history *History,
+func NewBuildManager(root string, timeout time.Duration, basePath, apiBasePath string, history *History,
 	publicationInputs func(context.Context) ([]Note, []string, error), preparePublication func(context.Context, map[string]string) error) *BuildManager {
 	if basePath == "" {
 		basePath = "/"
 	}
 	return &BuildManager{
-		root: root, basePath: basePath, timeout: timeout, history: history,
+		root: root, basePath: basePath, apiBasePath: apiBasePath, timeout: timeout, history: history,
 		status: BuildStatus{State: "idle"}, preparePublication: preparePublication, publicationInputs: publicationInputs,
 	}
 }
@@ -138,7 +139,7 @@ func (w buildWriter) Write(data []byte) (int, error) {
 }
 
 func (b *BuildManager) build(ctx context.Context) error {
-	settingsPath := filepath.Join(b.root, "web", "src", "generated", "site-settings.json")
+	settingsPath := filepath.Join(b.root, "web", "public", "site-settings.json")
 	if err := b.history.ExportPublicSettings(ctx, settingsPath); err != nil {
 		return fmt.Errorf("导出站点设置: %w", err)
 	}
@@ -177,18 +178,7 @@ func (b *BuildManager) build(ctx context.Context) error {
 		b.appendLog(fmt.Sprintf("\n[annotations] %v\n", err))
 		return err
 	}
-	frontend := exec.CommandContext(ctx, "node", filepath.Join("scripts", "build.mjs"))
-	frontend.Dir = filepath.Join(b.root, "web")
-	frontend.Env = append(os.Environ(), "GBWATER_BASE_PATH="+b.basePath)
-	input, err := json.Marshal(struct {
-		Rendered map[string]string `json:"rendered"`
-		Assets   []string          `json:"assets"`
-	}{Rendered: manifest.Files, Assets: assets})
-	if err != nil {
-		return err
-	}
-	frontend.Stdin = bytes.NewReader(input)
-	return run(frontend)
+	return publishFrontend(ctx, b.root, b.basePath, b.apiBasePath, manifest, assets, buildWriter{manager: b})
 }
 
 func (b *BuildManager) run(started BuildStatus, onFinish func(BuildStatus)) {

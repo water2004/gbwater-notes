@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import AppIcon from '@/components/AppIcon.vue'
@@ -13,13 +13,13 @@ import NoteTocCard from '@/components/NoteTocCard.vue'
 import StickyNoteCard from '@/components/StickyNoteCard.vue'
 import ContextMenu, { type MenuItem } from '@/components/ContextMenu.vue'
 import type { StickyNote } from '@/lib/annotations'
-import { fetchArticle, prerenderedArticle, takeInitialArticle, type RenderedArticle } from '@/lib/initial-article'
+import { fetchArticle, takeInitialArticle } from '@/lib/initial-article'
 import { useNoteAnnotations } from '@/lib/useNoteAnnotations'
 import { readingSettings, resetReadingSettings, updateReadingSettings } from '@/lib/readingSettings'
 
 const route = useRoute()
 // 正文与版本一起加载，标注使用读者实际看到的版本。
-const body = ref(inject<RenderedArticle | undefined>(prerenderedArticle, undefined) ?? takeInitialArticle())
+const body = ref(takeInitialArticle())
 const loading = ref(!body.value)
 const loadError = ref('')
 const readingProgress = ref(0)

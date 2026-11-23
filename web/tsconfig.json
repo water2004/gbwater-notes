@@ -13,7 +13,7 @@
     "noEmit": true,
     "esModuleInterop": true,
     "lib": ["ES2022", "ESNext.Disposable", "DOM", "DOM.Iterable"],
-    "types": ["node", "vite/client", "vite-ssg"],
+    "types": ["node", "vite/client"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

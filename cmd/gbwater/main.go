@@ -34,6 +34,9 @@ func runServer() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := app.InstallFrontend(config); err != nil {
+		log.Fatal(err)
+	}
 	application, err := app.NewServer(config)
 	if err != nil {
 		log.Fatal(err)

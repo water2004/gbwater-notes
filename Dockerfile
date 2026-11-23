@@ -47,10 +47,7 @@ COPY web/index.html web/vite.config.ts web/tsconfig.json ./
 COPY web/src ./src
 COPY web/scripts ./scripts
 COPY web/public/favicon.svg ./public/favicon.svg
-RUN printf '[]\n' > public/catalog.json \
-    && GBWATER_DYNAMIC_FRONTEND=template node scripts/build.mjs \
-    && mv dist /src/starter \
-    && rm /src/starter/.build-cache.json
+RUN npm run build
 
 # purego needs the same glibc dynamic loader used in the Ubuntu runtime.
 FROM golang:1.26-bookworm AS backend
@@ -70,22 +67,18 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && useradd --no-create-home -u 10001 -g gbwater gbwater
 WORKDIR /app
 ENV GBWATER_ROOT=/app GBWATER_ADDR=0.0.0.0:8080 GBWATER_ENV=production \
-    GBWATER_DYNAMIC_FRONTEND=installed \
+    GBWATER_FRONTEND_BUNDLE=/opt/gbwater/frontend \
     GBWATER_FOLIA_BRIDGE=/opt/gbwater/folia/folia_md GBWATER_FOLIA_LIB_DIR=/opt/gbwater/folia \
     LD_LIBRARY_PATH=/opt/gbwater/folia TZ=Etc/UTC
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=folia /out /opt/gbwater/folia
 COPY --from=backend /out/gbwater /usr/local/bin/gbwater
 COPY LICENSE /usr/share/licenses/gbwater/LICENSE
-COPY --from=frontend --chown=10001:10001 /src/web /app/web
-COPY --from=frontend /src/internal /app/internal
-COPY --from=frontend /src/starter /opt/gbwater/frontend
-COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/gbwater-entrypoint
-RUN install -d -o 10001 -g 10001 /app/content /app/data/content-assets /app/web/dist /app/web/src/generated \
+COPY --from=frontend /src/web/compiled /opt/gbwater/frontend
+RUN install -d -o 10001 -g 10001 /app/content /app/data/content-assets /app/web/dist /app/web/src/generated /app/web/public \
     && chown 10001:10001 /app/data \
     && ln -s ../../data/content-assets /app/web/public/content-assets
+COPY web/public/favicon.svg /app/web/public/favicon.svg
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s CMD curl --fail --silent http://127.0.0.1:8080/api/health || exit 1
-ENTRYPOINT ["gbwater-entrypoint"]
-CMD ["gbwater"]
+ENTRYPOINT ["/usr/local/bin/gbwater"]

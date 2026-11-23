@@ -72,7 +72,7 @@ func NewServer(config Config) (*Server, error) {
 	}
 	server.store.record = server.history.RecordRevision
 	server.assets.record = server.history.recordPublicationAsset
-	server.builds = NewBuildManager(config.Root, config.BuildTimeout, config.BasePath, server.history,
+	server.builds = NewBuildManager(config.Root, config.BuildTimeout, config.BasePath, config.APIBasePath, server.history,
 		server.publicationInputs, server.prepareAnnotationPublication)
 	server.builds.SetOnFinish(func(status BuildStatus) {
 		if status.State == "success" {
