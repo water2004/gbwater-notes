@@ -1,36 +1,54 @@
-# Linux 部署与运维
+# GBwater Notes v1.0.1 Linux 部署
 
-宿主机 nginx 直接读取静态目录，把公开 API 前缀（默认 `/mypdf/api/`）转发到 Go 容器内部的 `/api/`。Compose 自动为三个服务组网，持久化目录都在 `docker-compose.yml` 所在目录下。
+使用已发布的 `ghcr.io/water2004/gbwater-notes:1.0.1` 镜像，平台为 `linux/amd64`。宿主机 nginx 托管 `./frontend/`，Compose 运行 Go API、PostgreSQL 和 Meilisearch。 [GitHub Release 与镜像摘要](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.1)
+
+下文命令都在部署目录执行。持久化数据使用 Compose 文件同级的目录，服务之间由 Compose 自动组网。 [Compose 默认网络](https://docs.docker.com/compose/how-tos/networking/)
 
 ## 首次启动
 
-在 Linux amd64 主机上安装 Docker Engine、Compose 插件和 nginx。以下命令把 v1.0.1 的部署文件取到当前目录下的 `gbwater-notes/`。Compose 直接拉取已构建的版本镜像。
+在 Linux 主机安装 Docker Engine、Compose 插件和 nginx。进入打算存放站点和数据的目录，下载 v1.0.1 的部署文件。
 
 ```bash
-git clone --depth 1 --branch v1.0.1 https://github.com/water2004/gbwater-notes.git
-cd gbwater-notes
-cp deploy/compose.env.example .env
+gbwater_deploy_src=https://raw.githubusercontent.com/water2004/gbwater-notes/v1.0.1
+mkdir -p deploy
+curl -fsSLo docker-compose.yml "$gbwater_deploy_src/docker-compose.yml"
+curl -fsSLo deploy/compose.env.example "$gbwater_deploy_src/deploy/compose.env.example"
+curl -fsSLo deploy/nginx.conf.example "$gbwater_deploy_src/deploy/nginx.conf.example"
+install -m 0600 deploy/compose.env.example .env
 ```
 
-在 `.env` 填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。首次启动时 Go 服务按 `GBWATER_ADMIN_*` 自动创建管理员。已有管理员时，继续使用数据库里保存的账号和密码。
+在 `.env` 设置 `GBWATER_SITE_URL` 为实际的 HTTPS 域名，例如 `https://notes.example.com`。同时填写管理员邮箱和独立密码。数据库密码和搜索密钥各执行一次 `openssl rand -hex 24` 生成。Go 服务会在没有可用管理员时使用 `GBWATER_ADMIN_*` 创建管理员，已有管理员继续使用原账号和密码。
 
 ```bash
 mkdir -p data/db data/meilisearch
 sudo install -d -m 0755 -o 10001 -g 10001 content frontend data/gbwater data/gbwater/content-assets data/render
+docker compose config --quiet
 docker compose pull
 docker compose up -d --wait db search
 docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$(docker compose ps -q db)"
 ```
 
-把上面查到的网关填入 `.env` 的 `GBWATER_DOCKER_GATEWAY`，API 据此识别宿主机 nginx 转发的访客 IP。
+把查到的网关填入 `.env` 的 `GBWATER_DOCKER_GATEWAY`。这个值供 API 信任宿主机 nginx 转发的真实访客 IP，Docker 继续自动分配网络。以后重建 Compose 网络时重新查一次。
 
 ```bash
 docker compose up -d --wait
 ```
 
-API 容器启动时会把镜像里的登录、注册、找回密码和后台页面安装到 `frontend/`，并按 `.env` 替换路径。同一配置重启时会跳过内容相同的文件。运行容器的 UID/GID 是 `10001`，导入的内容目录和图床也需要该用户可读写。
+API 容器启动时会按 `.env` 的路径把登录、注册、找回密码和后台页面安装到 `frontend/`。公开首页、课程页和笔记由管理员首次发布生成。
 
-将 [nginx 示例](../deploy/nginx.conf.example) 加到宿主机 nginx 配置中，换成实际域名、证书、`frontend/` 绝对路径和 API 端口。默认外部 API 前缀为 `/mypdf/api/`，示例中的 `proxy_pass` 末尾保留 `/api/`，由 nginx 将外部前缀改写为 Go 内部的路由。笔记图片和构建后的公式、图表由 nginx 直接读取。
+## 配置宿主机 nginx
+
+将下载的 nginx 示例合并到宿主机站点配置中。把域名、证书、示例中的 `/var/www/gbwater/frontend/` 和代理端口换成实际值。可以在部署目录运行 `realpath frontend` 确认静态目录，nginx 进程需要能进入部署目录并读取产物。 [nginx 完整示例](../deploy/nginx.conf.example)
+
+| 用途 | 默认外部地址 | nginx 目标 |
+| --- | --- | --- |
+| 页面、前端资源、图片和公式 | `/mypdf/` | 部署目录下的 `frontend/` |
+| 公开 API | `/mypdf/api/` | `http://127.0.0.1:8080/api/` |
+| 文档包上传 | `/mypdf/api/admin/document-packages` | `http://127.0.0.1:8080/api/admin/document-packages` |
+
+普通 API 的 `proxy_pass` 保留末尾的 `/api/`，nginx 用它替换匹配到的外部前缀。文档包使用独立的精确匹配 location，设置 `client_max_body_size 64m`。 [nginx 路径转发规则](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass)
+
+更改挂载路径时，调整 `GBWATER_BASE_PATH` 以及 nginx 中的静态 location、编辑器重写和重定向。留空 `GBWATER_API_BASE_PATH` 时，公开 API 前缀取站点路径加 `api/`。例如挂载到 `/notes/` 时，默认 API 是 `/notes/api/`。也可以将 API 单独设为 `/notes-api/`，此时文档包的精确 location 是 `/notes-api/admin/document-packages`。代理目标保持表中的内部路由，端口跟随 `GBWATER_PORT`。
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -39,13 +57,11 @@ curl -fsS https://notes.example.com/mypdf/api/health
 
 健康检查通过后，从 HTTPS 的 `/mypdf/admin/` 进入后台，再点击「构建并发布」生成公开首页和笔记。
 
-文档包上传使用 nginx 示例中的精确匹配 location，最大 64 MiB。自定义 API 前缀时，使用该前缀拼接 `admin/document-packages`。 [文档包使用与格式](document-package.md)
-
 ## 修改和发布内容
 
-1. 首次启动前可以准备现有 Markdown 和图床目录。站点运行后，通过后台 API 编辑笔记和管理图片。
-2. 从「发布」点击「构建并发布」。容器内的 Go 服务调用 Linux Folia 生成 HTML、公式与图表，再运行 Vite SSG。宿主机 nginx 随即读取更新后的 `frontend/`。
-3. 访问站点首页、笔记与公开 API 前缀下的 `health`（如 `/mypdf/api/health`）确认。修改目录、学科或站点文案后使用同一个发布入口。
+1. 站点运行后，在后台编辑笔记和管理图片。需要批量导入时，从「笔记管理」上传 `.gbnotes.zip`，检查预览后确认新增或替换。 [文档包使用与格式](document-package.md)
+2. 在「发布」点击「构建并发布」。任务进入 PostgreSQL 队列，按提交顺序执行。Go 根据保存的笔记版本、图片清单和站点设置增量更新 `frontend/`。
+3. 等待后台显示「发布成功」，打开首页、课程目录和这次更新的笔记确认。
 
 改路径时调整 `.env` 的 `GBWATER_BASE_PATH` 和 `GBWATER_API_BASE_PATH`、同步修改 nginx 的 location，再运行 `docker compose up -d --wait`。同一镜像即可启动新的登录和后台路径。公开页由管理员随后点击「构建并发布」，服务按新路径更新对应的静态产物。
 
@@ -68,7 +84,7 @@ curl -fsS https://notes.example.com/mypdf/api/health
 
 需要开放注册或找回密码时，配置 SMTP 后再启用相应功能。用 587 端口时 TLS 通常填 `starttls`，465 通常填 `tls`。注册域名限制和认证限流在后台保存，配置保存在 PostgreSQL。
 
-## 数据和升级
+## 文件与数据目录
 
 | 路径 | 内容 |
 | --- | --- |
@@ -77,36 +93,9 @@ curl -fsS https://notes.example.com/mypdf/api/health
 | `data/gbwater/asset-trash/` | 图片回收站 |
 | `data/render/` | 可重建的后台渲染数据 |
 | `frontend/` | nginx 读取的静态发布目录 |
-| `data/db/` | PostgreSQL 数据，包含账号、会话、划线便签、站点设置和 Markdown 修订 |
+| `data/db/` | PostgreSQL 数据，包含账号、会话、划线便签、站点设置、Markdown 修订、内容清单和发布队列 |
 | `data/meilisearch/` | 可重建的搜索索引 |
-
-### 升级到 v1.0.1
-
-在原部署目录操作。备份 PostgreSQL、`.env`、内容、图床和回收站，保留已有的 `content/`、`data/gbwater/`、`data/render/` 和 `frontend/`。如果原数据库已经挂载到 `./data/db/`，可继续使用。使用了 v1.0.0 原始命名卷时，先执行下方迁移步骤。
-
-1. 用 [v1.0.1 Compose 配置](../docker-compose.yml) 更新现有配置，保留部署时自定义的目录和端口。在原 `.env` 将 `GBWATER_IMAGE` 改为 `ghcr.io/water2004/gbwater-notes:1.0.1`，设置 `GBWATER_API_BASE_PATH` 或留空使用默认值。
-2. 执行 `docker compose pull`、`docker compose up -d --wait db search`。按首次启动步骤重新查网关并更新 `.env`，再执行 `docker compose up -d --wait`。启动后的登录和后台页面会使用新路径。
-3. 同步更新 nginx 的 API location、文档包上传 location 和 `admin-assets/` 配置，检查配置并重载。通过 HTTPS 登录后台，点击「构建并发布」。这一步会更新公开页的 API 路径，并计算已有划线、书签和便签在当前正文中的位置。完成后刷新旧阅读页。
-
-### 从 v1.0.0 的 PostgreSQL 命名卷迁移
-
-用旧 Compose 配置停掉 API。保持旧数据库运行，导出并检查备份。
-
-```bash
-docker compose stop api
-docker compose exec -T db pg_dump -U gbwater -d gbwater -Fc > gbwater-v1.0.0.dump
-docker compose exec -T db pg_restore --list < gbwater-v1.0.0.dump
-```
-
-确认导出成功后，用原配置执行 `docker compose down`，保留原命名卷。然后在原部署目录换成 v1.0.1 配置、按首次启动的命令创建挂载目录，并将备份恢复到新的空数据库：
-
-```bash
-docker compose up -d --wait db
-docker compose exec -T db pg_restore -U gbwater -d gbwater --single-transaction --exit-on-error < gbwater-v1.0.0.dump
-```
-
-恢复成功后继续升级步骤。搜索索引会在后台发布时重建。升级验证通过前保留备份和原数据卷。
 
 ## 排查
 
-排查时可用 `docker compose ps`、`docker compose logs api`、`curl http://127.0.0.1:8080/api/health` 和 `nginx -t`。Folia 与前端构建日志可在后台「发布」查看。
+先运行 `docker compose ps` 和 `docker compose logs api`，再分别检查 `http://127.0.0.1:8080/api/health` 与部署域名下的公开健康检查。Folia 和静态构建日志在后台「发布」查看。文档包上传收到 HTTP 413 时，核对实际生效的 nginx 精确 location 和 64 MiB 上限。

@@ -8,4 +8,4 @@
 - 容器启动时按配置安装登录和后台页面。公开页面由管理员增量发布。宿主机 nginx 托管静态站点和图片，并转发可配置的 API 前缀。
 - Compose 使用默认网络。数据库、搜索索引和站点文件通过部署目录下的路径持久化。
 
-镜像为 `ghcr.io/water2004/gbwater-notes:1.0.1`，目标平台 `linux/amd64`。升级时更新 Compose 和 nginx 配置，再到后台发布一次，计算已有标注的位置。原先使用 PostgreSQL 命名卷的部署需要先迁移数据库。 [Linux 部署与运维](https://github.com/water2004/gbwater-notes/blob/v1.0.1/docs/deployment.md) · [文档包](https://github.com/water2004/gbwater-notes/blob/v1.0.1/docs/document-package.md)
+镜像为 `ghcr.io/water2004/gbwater-notes:1.0.1`，目标平台 `linux/amd64`。首次安装时，启动 Compose 并配置宿主机 nginx，通过后台导入内容后发布站点。 [Linux 部署指南](https://github.com/water2004/gbwater-notes/blob/main/docs/deployment.md) · [文档包](https://github.com/water2004/gbwater-notes/blob/v1.0.1/docs/document-package.md)
