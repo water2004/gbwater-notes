@@ -159,10 +159,11 @@ try {
   const generatedIcon = join(web, 'src/generated/site-icon.svg')
   mkdirSync(dirname(generatedIcon), { recursive: true })
   const customIcon = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>'
-  writeFileSync(generatedIcon, customIcon)
+  writeFileSync(generatedIcon, customIcon, { mode: 0o600 })
   assert.match(build(0, installed), /rendered 0, reused \d+.*updated 1, removed 0/)
   const afterIcon = fileTimes()
   assert.deepEqual(Object.keys(afterIcon).filter(name => afterIcon[name] !== beforeIcon[name]), ['favicon.svg'])
+  assert.equal(statSync(join(dist, 'favicon.svg')).mode & 0o444, 0o444)
   prepareFrontend(starter, dist, movedPaths)
   assert.equal(readFileSync(join(dist, 'favicon.svg'), 'utf8'), customIcon)
   rmSync(generatedIcon)

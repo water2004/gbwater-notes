@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
-  copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync,
+  chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -198,6 +198,7 @@ function publish(stage, { pages, reused, bundle, publicFiles, previous, publicat
     const target = join(stage, name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(publicSource(name), target)
+    chmodSync(target, 0o644)
   }
   if (updates.length || publicUpdates.length || obsolete.length) rmSync(cacheFile, { force: true })
   // 新资源先落盘，随后替换引用这些资源的页面，最后清理旧产物。

@@ -56,6 +56,13 @@ jobs:
         with:
           submodules: recursive
       - uses: docker/setup-buildx-action@v3
+      - name: Sign in to GHCR
+        id: registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          printf 'image=ghcr.io/%s\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - name: Build Linux container
         uses: docker/build-push-action@v6
         with:
@@ -67,8 +74,12 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ steps.registry.outputs.image }}:build-cache
+          cache-to: |
+            type=gha,mode=max,ignore-error=true
+            type=registry,ref=${{ steps.registry.outputs.image }}:build-cache,mode=max,ignore-error=true
       - name: Verify Linux publish workflow end to end
         run: bash deploy/smoke-image.sh
       - name: Collect container logs
@@ -80,18 +91,16 @@ jobs:
       - name: Publish tested image
         id: publish
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.registry.outputs.image }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
           version="${GITHUB_REF_NAME#v}"
-          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker tag "$GBWATER_IMAGE" "$image:$version"
-          docker push "$image:$version"
-          docker tag "$GBWATER_IMAGE" "$image:latest"
-          docker push "$image:latest"
-          digest="$(docker buildx imagetools inspect "$image:$version" --format '{{.Manifest.Digest}}')"
+          docker tag "$GBWATER_IMAGE" "$IMAGE:$version"
+          docker push "$IMAGE:$version"
+          docker tag "$GBWATER_IMAGE" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          printf 'ref=%s@%s\n' "$image" "$digest" >> "$GITHUB_OUTPUT"
+          printf 'ref=%s@%s\n' "$IMAGE" "$digest" >> "$GITHUB_OUTPUT"
 
   release:
     needs: [test, image]
