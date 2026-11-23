@@ -108,14 +108,17 @@ Unicode 字符区间，起点包含、终点排除。找不到可靠位置时省
 | GET | `/api/admin/asset/references?id=…` | 返回 `{references}`，列出当前 Markdown 中引用该图片的笔记 ID 和标题 |
 | GET | `/api/admin/note?id=…` | 返回 `{note, content}`，其中 `content` 是当前完整 Markdown，含 front matter |
 | GET | `/api/admin/note/download?id=…` | 下载当前 Markdown 原文件 |
+| POST | `/api/admin/document-packages/export` | 接收 `{ids}`，下载 ZIP 文档包 |
+| POST | `/api/admin/document-packages?preview=true` | 上传 ZIP 原始字节并预览笔记、学科与图片变动 |
+| POST | `/api/admin/document-packages?digest=…&replace=true` | 提交同一 ZIP，`digest` 取自预览。替换已有笔记需要显式传入 `replace=true` |
 | PATCH | `/api/admin/note` | 提交 `{id, draft, expectedRevision}`，切换笔记公开状态，返回 `{note}` |
 | PUT | `/api/admin/note` | 提交 `{id, content, expectedRevision}`。返回 `{note, content}`，版本冲突返回 `409 revision_conflict` |
 | GET | `/api/admin/note/native?id=…` | 读取构建生成的公式和 Mermaid 元数据，缺失时返回 `404 native_not_found` |
 | GET | `/api/admin/revisions?noteId=…` | 返回指定笔记最近 50 条修订，按最新记录优先排序。每条含 `id`、`noteId`、`revision`、`title`、`action`、`createdAt` |
 | GET | `/api/admin/revisions/{id}?noteId=…` | 按修订记录 ID 和笔记 ID 读取历史快照，返回 `{content}`。记录不存在或归属于其他笔记时返回 `404 revision_not_found` |
-| GET | `/api/admin/build` | 返回是否启用构建、当前状态、日志和时间，供后台跨页面跟踪发布 |
+| GET | `/api/admin/build` | 返回构建开关、当前任务 ID、状态、日志、时间和等待任务数 `queued` |
 | GET | `/api/admin/build/history` | 返回 `{builds}`，包含最近 20 次发布记录 |
-| POST | `/api/admin/build` | 启动构建并返回 `202` 和构建状态。已在构建时返回 `409 build_running`，关闭构建时返回 `409 build_disabled` |
+| POST | `/api/admin/build` | 将任务加入发布队列并返回 `202` 和队列状态。构建关闭时返回 `409 build_disabled` |
 | GET | `/api/admin/users` | 可传 `query`、`limit`、`offset`，返回 `{users, total, limit, offset}` |
 | PATCH | `/api/admin/users/{id}` | 修改 `role` 或 `status`，返回 `{user}` |
 | DELETE | `/api/admin/users/{id}` | 删除用户，返回 `{ok}` |

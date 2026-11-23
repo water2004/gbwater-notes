@@ -23,9 +23,7 @@ async function loadHistory() {
   }
 }
 
-watch(() => status.value?.state, (_, previous) => {
-  if (previous === 'running' && status.value?.state !== 'running') void loadHistory()
-})
+watch(() => [status.value?.id, status.value?.state], () => void loadHistory())
 onMounted(loadHistory)
 onBeforeUnmount(() => requests.abort())
 </script>
@@ -34,8 +32,8 @@ onBeforeUnmount(() => requests.abort())
   <div class="publish-page">
     <header class="admin-page-header">
       <div><h1>发布</h1><p>将已保存的笔记、图片和站点设置发布到公开站点。</p></div>
-      <button type="button" class="button button-primary" :disabled="pending || starting || !status?.enabled || status.state === 'running'" @click="start">
-        <AppIcon name="build" :size="17" />{{ status?.state === 'running' ? '正在发布' : starting ? '正在启动…' : '构建并发布' }}
+      <button type="button" class="button button-primary" :disabled="pending || starting || !status?.enabled" @click="start">
+        <AppIcon name="build" :size="17" />{{ starting ? '正在提交…' : status?.state === 'running' ? '加入发布队列' : '构建并发布' }}
       </button>
     </header>
     <p v-if="error" class="error-message" role="alert">{{ error }} <button type="button" class="text-link" @click="refresh">刷新状态</button></p>
@@ -44,6 +42,7 @@ onBeforeUnmount(() => requests.abort())
       <div class="panel-heading"><h2>当前状态</h2><span :class="['admin-status', { failed: status.state === 'failed' }]" role="status">{{ buildStateLabel[status.state] }}</span></div>
       <div class="admin-panel-row"><span>开始时间</span><strong>{{ date(status.startedAt) }}</strong></div>
       <div class="admin-panel-row"><span>完成时间</span><strong>{{ date(status.finishedAt) }}</strong></div>
+      <div v-if="status.queued" class="admin-panel-row"><span>排队中</span><strong>{{ status.queued }} 个任务</strong></div>
       <p v-if="status.state === 'running'" class="form-hint">可以离开此页继续编辑，侧栏会显示发布状态。</p>
       <p v-if="status.error" class="error-message">{{ status.error }}</p>
       <details v-if="status.log" class="build-log" :open="status.state === 'failed'"><summary>构建日志</summary><pre class="admin-log">{{ status.log }}</pre></details>

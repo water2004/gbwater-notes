@@ -52,4 +52,5 @@ npm --prefix web run test:build
 - [架构与数据模型](docs/architecture.md)
 - [Linux 部署与运维](docs/deployment.md)
 - [HTTP API](docs/api.md)
+- [文档包使用与格式](docs/document-package.md)
 - [版本说明](RELEASE.md)

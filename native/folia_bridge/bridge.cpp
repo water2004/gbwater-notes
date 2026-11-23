@@ -55,10 +55,7 @@ std::string inline_html(const InlineDocument& document, const folia::InlineCstNo
                 html += "<em>" + inline_html(document, node.children) + "</em>";
                 break;
             case InlineCstKind::Highlight: {
-                auto content = inline_html(document, node.children);
-                if (content.empty()) content = escape_text(folia::cps_to_utf8(
-                    folia::inline_source_slice(document, node.delimiter_ranges().content)));
-                html += "<mark class=\"markdown-highlight\">" + content + "</mark>";
+                html += "<mark class=\"markdown-highlight\">" + inline_html(document, node.children) + "</mark>";
                 break;
             }
             case InlineCstKind::Strikethrough:
@@ -116,6 +113,25 @@ std::string inline_html(const InlineDocument& document, const folia::InlineCstNo
             case InlineCstKind::FootnoteRef:
                 html += "<sup class=\"footnote-ref\">" + escape_text(node.semantics().label) + "</sup>";
                 break;
+            case InlineCstKind::WikiLink:
+                html += escape_text(node.semantics().alias.value_or(node.semantics().target));
+                break;
+            case InlineCstKind::Incomplete: {
+                // Folia keeps unfinished delimiters for editing. Publish their
+                // parsed children so complete math and formatting still render.
+                if (!node.children.empty()) {
+                    html += inline_html(document, node.children);
+                } else {
+                    const auto& ranges = node.delimiter_ranges();
+                    const auto opening = folia::inline_source_slice(document, ranges.opening);
+                    if (opening == U"$" || opening == U"\\(") {
+                        throw std::runtime_error("行内公式缺少闭合符，请将行内公式写在同一行");
+                    } else {
+                        html += escape_text(folia::cps_to_utf8(folia::inline_source_slice(document, ranges.content)));
+                    }
+                }
+                break;
+            }
             case InlineCstKind::SoftBreak:
             case InlineCstKind::HardBreak:
                 html += "<br>\n";
@@ -165,7 +181,10 @@ std::string block_html(const BlockNode& block) {
             std::string language;
             if (block.block_source.tree().language) language = *block.block_source.tree().language;
             const auto content = folia::cps_to_utf8(folia::block_source_content(block.block_source));
-            if (language == "mermaid") {
+            auto diagram_language = language.substr(0, language.find_first_of(" \t"));
+            std::ranges::transform(diagram_language, diagram_language.begin(),
+                [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (diagram_language == "mermaid") {
                 return "<pre class=\"mermaid-source\"><code>" + escape_text(content) + "</code></pre>\n";
             }
             const auto attr = language.empty() ? std::string{} : " class=\"language-" + escape_text(language) + "\"";
@@ -340,7 +359,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    auto parsed = folia::parse_text(1, source);
-    std::cout << blocks_html(parsed.document.root.children);
+    try {
+        auto parsed = folia::parse_text(1, source);
+        std::cout << blocks_html(parsed.document.root.children);
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
     return 0;
 }

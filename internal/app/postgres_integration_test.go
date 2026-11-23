@@ -22,7 +22,11 @@ func TestPostgreSQLHistoryRoundTrip(t *testing.T) {
 	if err := history.RecordRevision(document, "create", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := history.RecordBuild(BuildStatus{State: "success", StartedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
+	buildID, err := history.enqueueBuild(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := history.updateQueuedBuild(t.Context(), BuildStatus{ID: buildID, State: "success", StartedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	revisions, err := history.RecentRevisions(t.Context(), document.Note.ID, 10)
@@ -56,7 +60,19 @@ func TestPostgreSQLSyncsContent(t *testing.T) {
 	if err != nil || len(catalog) != 2 {
 		t.Fatalf("list content: %d notes, %v", len(catalog), err)
 	}
-	server.SyncContent()
+	if err := server.InitializeContent(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(Note{Title: "未登记", Category: "math", Course: "演示课程"}, "构建不采用这个文件。"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.InitializeContent(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	input, _, err := server.publicationInputs(t.Context())
+	if err != nil || len(input) != len(catalog) {
+		t.Fatalf("publication inputs: %v, %v", input, err)
+	}
 
 	var notes, slugs int
 	if err := server.db.QueryRow(`SELECT count(*), count(DISTINCT slug) FROM notes`).Scan(&notes, &slugs); err != nil {

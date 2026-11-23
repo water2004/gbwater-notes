@@ -5,8 +5,9 @@ import {
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
+import { loadEnv } from 'vite'
 import { build } from 'vite-ssg/node'
-import { catalogCategories, parseCatalog, readCatalogSource, staticRoutes } from './static-content.ts'
+import { catalogCategories, catalogPageInputs, parseCatalog, readCatalogSource, staticRoutes } from './static-content.ts'
 import { dynamicEntries, isDynamicPath } from './deployment.ts'
 import { prerenderedArticle } from '../src/lib/initial-article.ts'
 
@@ -19,6 +20,9 @@ const stagePrefix = '.dist-build-'
 const cacheFile = join(dist, cacheName)
 const dynamicMode = process.env.GBWATER_DYNAMIC_FRONTEND
 const preserve = dynamicMode === 'installed' ? [...dynamicEntries] : []
+const publication = dynamicMode === 'template'
+  ? { rendered: { 'catalog.json': fileHash(join(publicDir, 'catalog.json')) }, assets: [] }
+  : JSON.parse(readFileSync(0, 'utf8'))
 
 function hash(value) {
   return createHash('sha256').update(value).digest('hex')
@@ -47,7 +51,7 @@ function fileHash(path) {
 
 function readCache() {
   try {
-    return JSON.parse(readFileSync(cacheFile, 'utf8')).pages ?? {}
+    return JSON.parse(readFileSync(cacheFile, 'utf8'))
   } catch (error) {
     if (error.code === 'ENOENT' || error instanceof SyntaxError) return {}
     throw error
@@ -69,26 +73,47 @@ function navigationByCourse(notes) {
 async function buildPages(stage) {
   const catalogFile = join(publicDir, 'catalog.json')
   const catalogJSON = readCatalogSource(catalogFile)
-  const catalog = parseCatalog(catalogJSON)
-  const catalogHash = hash(catalogJSON)
+  const catalog = dynamicMode === 'template' ? [] : parseCatalog(catalogJSON)
   const categories = catalogCategories(catalog)
+  const catalogInputs = catalogPageInputs(catalog, categories)
   const courseNavigationHash = navigationByCourse(catalog)
-  const assets = new Map([['catalog.json', { contents: catalogJSON, digest: catalogHash }]])
+  const publicFiles = new Map(Object.entries(publication.rendered))
+  publicFiles.set('favicon.svg', fileHash(join(publicDir, 'favicon.svg')))
+  for (const id of publication.assets) {
+    const name = `content-assets/${id}`
+    publicFiles.set(name, id)
+  }
   const articles = new Map(catalog.map(note => {
     const name = `note-content/${note.slug}.json`
     const filename = join(publicDir, name)
-    if (!existsSync(filename)) throw new Error(`缺少正文：${note.id}`)
-    const contents = readFileSync(filename, 'utf8')
-    const digest = hash(contents)
-    const body = JSON.parse(contents)
-    if (typeof body.html !== 'string' || !/^[a-f0-9]{32}$/.test(body.revision)) {
-      throw new Error(`正文产物格式不正确：${note.id}`)
-    }
-    assets.set(name, { contents, digest })
+    const digest = publicFiles.get(name)
+    if (!digest || !existsSync(filename)) throw new Error(`缺少正文：${note.id}`)
     const inputs = [note, digest, categories[note.category]?.name, courseNavigationHash(note)]
-    return [`/notes/${note.slug}/`, { body, fingerprint: hash(JSON.stringify(inputs)) }]
+    return [`/notes/${note.slug}/`, { filename, id: note.id, fingerprint: hash(JSON.stringify(inputs)) }]
   }))
   const previous = readCache()
+  const previousPages = previous.pages ?? {}
+  const inputs = ['index.html', 'vite.config.ts', 'package.json', 'package-lock.json',
+    '../internal/app/default_categories.json',
+    ...files(join(root, 'scripts')).map(name => `scripts/${name}`),
+    ...files(join(root, 'src'), new Set(['generated'])).map(name => `src/${name}`),
+    'src/generated/site-settings.json']
+  const frontend = hash(JSON.stringify([
+    process.version, process.env.NODE_ENV, dynamicMode,
+    loadEnv('production', dirname(root), ['GBWATER_BASE_PATH', 'GBWATER_API_BASE_PATH']),
+    loadEnv('production', root, ['VITE_']),
+    ...inputs.map(name => [name, fileHash(join(root, name))]),
+  ]))
+  const publicationKey = hash(JSON.stringify([frontend, publication.rendered['catalog.json'],
+    [...articles].map(([route, article]) => [route, article.fingerprint])]))
+  if (previous.publicationKey === publicationKey
+    && Array.isArray(previous.bundle)
+    && Object.keys(previousPages).every(name => existsSync(join(dist, name)))
+    && previous.bundle.every(name => existsSync(join(dist, name)))) {
+    const pages = new Map(Object.entries(previousPages))
+    console.log(`[pages] rendered 0, reused ${pages.size}`)
+    return { pages, reused: new Set(pages.keys()), bundle: previous.bundle, publicFiles, previous, publicationKey }
+  }
   const pages = new Map()
   const reused = new Set()
   const rendered = new Set()
@@ -96,26 +121,18 @@ async function buildPages(stage) {
   await build({
     entry: '/scripts/ssg-entry.ts',
     includedRoutes(paths) {
-      // 同时检查客户端资源和 SSR 使用的源码。目录数据单独判断，
-      // 改一篇文章时，其它文章可以沿用相同的前端资源。
-      const inputs = ['index.html', 'vite.config.ts', 'package-lock.json',
-        ...files(join(root, 'scripts')).map(name => `scripts/${name}`),
-        ...files(join(root, 'src'), new Set(['generated'])).map(name => `src/${name}`),
-        'src/generated/site-settings.json']
       const shared = hash(JSON.stringify([
-        process.version,
+        frontend,
         fileHash(join(stage, 'index.html')),
         fileHash(join(stage, '.vite/ssr-manifest.json')),
-        ...inputs.map(name => [name, fileHash(join(root, name))]),
       ]))
       return [...new Set(staticRoutes(paths, catalog, Object.keys(categories)))].filter(route => {
         if (dynamicMode === 'template' && !isDynamicPath(route)) return false
         if (dynamicMode === 'installed' && isDynamicPath(route)) return false
         const filename = join(route.slice(1), 'index.html').replaceAll('\\', '/')
-        const dependsOnCatalog = route === '/' || route.startsWith('/library') || route.startsWith('/courses/')
-        const input = hash(JSON.stringify([shared, articles.get(route)?.fingerprint ?? (dependsOnCatalog ? catalogHash : '')]))
-        const cached = previous[filename]
-        if (cached?.input === input && cached.output === fileHash(join(dist, filename))) {
+        const input = hash(JSON.stringify([shared, articles.get(route)?.fingerprint ?? catalogInputs.get(route)]))
+        const cached = previousPages[filename]
+        if (cached?.input === input && existsSync(join(dist, filename))) {
           reused.add(filename)
         }
         pages.set(filename, { route, input })
@@ -124,7 +141,13 @@ async function buildPages(stage) {
     },
     onBeforePageRender(route, _html, { app }) {
       const article = articles.get(route)
-      if (article) app.provide(prerenderedArticle, article.body)
+      if (article) {
+        const body = JSON.parse(readFileSync(article.filename, 'utf8'))
+        if (typeof body.html !== 'string' || !/^[a-f0-9]{32}$/.test(body.revision)) {
+          throw new Error(`正文产物格式不正确：${article.id}`)
+        }
+        app.provide(prerenderedArticle, body)
+      }
     },
     onPageRendered(route, html) {
       if (articles.has(route) && !html.includes('class="note-article"')) {
@@ -134,9 +157,6 @@ async function buildPages(stage) {
     },
   }, { root, build: { outDir: stage, copyPublicDir: false } })
 
-  if ([...assets].some(([name, asset]) => fileHash(join(publicDir, name)) !== asset.digest)) {
-    throw new Error('构建期间笔记产物发生变化，请等 Go 渲染结束后重试。')
-  }
   // Vite 的客户端构建会写出 HTML 壳，首页沿用上次产物时应丢弃它。
   if (!pages.has('index.html') || reused.has('index.html')) rmSync(join(stage, 'index.html'), { force: true })
   rmSync(join(stage, '.vite/ssr-manifest.json'), { force: true })
@@ -144,40 +164,35 @@ async function buildPages(stage) {
     if (!reused.has(filename) && !rendered.has(page.route)) {
       throw new Error(`静态页面未生成：${page.route}`)
     }
-    page.output = fileHash(join(reused.has(filename) ? dist : stage, filename))
+    page.output = reused.has(filename) ? previousPages[filename].output : fileHash(join(stage, filename))
     if (!page.output) throw new Error(`静态页面文件缺失：${page.route}`)
   }
   console.log(`[pages] rendered ${rendered.size}, reused ${reused.size}`)
-  for (const [name, { contents, digest }] of assets) {
-    if (digest === fileHash(join(dist, name))) {
-      reused.add(name)
-    } else {
-      const filename = join(stage, name)
-      mkdirSync(dirname(filename), { recursive: true })
-      writeFileSync(filename, contents)
-    }
-  }
-  return { pages, reused }
+  const bundle = files(stage).filter(name => !pages.has(name))
+  return { pages, reused, bundle, publicFiles, previous, publicationKey }
 }
 
-function publish(stage, { pages, reused }) {
+function publish(stage, { pages, reused, bundle, publicFiles, previous, publicationKey }) {
   const staged = files(stage)
-  const expected = new Set([...staged, ...reused])
-  const publicFiles = [
-    ...files(publicDir, new Set(['content-assets', 'note-content', ...preserve])),
-    ...files(join(publicDir, 'content-assets')).map(name => `content-assets/${name}`),
-  ].filter(name => !expected.has(name))
-  publicFiles.forEach(name => expected.add(name))
-  const transient = readdirSync(dist).filter(name => name.startsWith(stagePrefix))
-  const obsolete = files(dist, new Set([cacheName, ...transient, ...preserve])).filter(name => !expected.has(name))
-  const updates = staged.filter(name => fileHash(join(stage, name)) !== fileHash(join(dist, name)))
-  const publicUpdates = publicFiles.filter(name => fileHash(join(publicDir, name)) !== fileHash(join(dist, name)))
+  const outputs = new Map([...staged.map(name => [name, pages.get(name)?.output ?? fileHash(join(stage, name))]),
+    ...[...reused].map(name => [name, pages.get(name).output]), ...publicFiles])
+  for (const name of bundle) {
+    if (!outputs.has(name)) outputs.set(name, previous.outputs[name])
+  }
+  const expected = new Set(outputs.keys())
+  const obsolete = (previous.outputs ? Object.keys(previous.outputs) : files(dist,
+    new Set([cacheName, ...readdirSync(dist).filter(name => name.startsWith(stagePrefix)), ...preserve])))
+    .filter(name => !expected.has(name) && !preserve.includes(name.split('/')[0]) && existsSync(join(dist, name)))
+  const needsUpdate = name => previous.outputs?.[name] !== outputs.get(name) || !existsSync(join(dist, name))
+  const updates = staged.filter(needsUpdate)
+  const publicUpdates = [...publicFiles.keys()].filter(needsUpdate)
   // 增量复制静态资源，避免每次构建都复制所有图片和公式 SVG。
   for (const name of publicUpdates) {
     const target = join(stage, name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(publicDir, name), target)
   }
+  if (updates.length || publicUpdates.length || obsolete.length) rmSync(cacheFile, { force: true })
   // 新资源先落盘，随后替换引用这些资源的页面，最后清理旧产物。
   for (const name of [...publicUpdates, ...updates.filter(name => !pages.has(name)), ...updates.filter(name => pages.has(name))]) {
     const target = join(dist, name)
@@ -194,7 +209,10 @@ function publish(stage, { pages, reused }) {
     }
   }
 
-  const metadata = JSON.stringify({ pages: Object.fromEntries(pages) }) + '\n'
+  const metadata = JSON.stringify({
+    publicationKey, bundle, pages: Object.fromEntries(pages),
+    outputs: Object.fromEntries([...outputs].sort(([a], [b]) => a.localeCompare(b))),
+  }) + '\n'
   if (hash(metadata) !== fileHash(cacheFile)) {
     const manifest = join(stage, cacheName)
     writeFileSync(manifest, metadata)

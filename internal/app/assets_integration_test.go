@@ -130,10 +130,19 @@ func TestAdminAssetLifecycleAndMarkdownHistory(t *testing.T) {
 		t.Fatalf("unexpected asset references: %+v", usage.References)
 	}
 	move(second, false, http.StatusOK)
+	registeredNotes, registeredAssets, err := server.publicationInputs(t.Context())
+	if err != nil || len(registeredAssets) != 1 || registeredAssets[0] != asset.ID ||
+		len(registeredNotes) != 1 || registeredNotes[0].Revision != current.Note.Revision {
+		t.Fatalf("publication snapshot after API saves: %v, %v, %v", registeredNotes, registeredAssets, err)
+	}
 	if assets := list(noteID, true, http.StatusOK); len(assets) != 1 || assets[0].ID != second.ID {
 		t.Fatalf("unexpected scoped trash: %+v", assets)
 	}
 	move(second, true, http.StatusOK)
+	_, registeredAssets, err = server.publicationInputs(t.Context())
+	if err != nil || len(registeredAssets) != 2 {
+		t.Fatalf("publication snapshot after restore: %v, %v", registeredAssets, err)
+	}
 
 	revisions, err := server.history.RecentRevisions(t.Context(), noteID, 10)
 	if err != nil || len(revisions) != 2 || revisions[1].Action != "baseline" || revisions[1].Revision != original.Note.Revision {

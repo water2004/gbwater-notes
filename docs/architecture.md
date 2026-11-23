@@ -28,13 +28,13 @@
 ## 文章生成管线
 
 1. Markdown 存在 `content/学科/课程/标题.md`。图床原图存入 `web/public/content-assets/`。
-2. 后台「构建并发布」触发 Go 构建任务，扫描 `content/`：
-   - 用 `folia_md` 把 Markdown 解析成 AST，直接写站点 HTML；
-   - 同时用 Go 的 Folia native 封装渲染 `$…$`/`$$…$$` 和 Mermaid 为 SVG；
-   - 再把 HTML 里的公式/Mermaid 占位替换成 `<img>`/`<figure>`；
+2. 「构建并发布」把任务写入 PostgreSQL 队列。Go 按入队顺序逐个执行，在任务开始时读取笔记版本、图片清单和站点设置。日常编辑、上传、回收和恢复通过后台 API 更新这些记录。已有数据在首次启动时登记一次。
+   - 用 `folia_md` 解析 Markdown，从同一棵语法树生成正文和公式、Mermaid 占位；
+   - Go 从占位读取公式和图表，调用 Folia 生成 SVG，再将占位替换为引用 SVG 的元素。图片替代文字与无障碍标签使用固定文案；
+   - 从渲染后 HTML 提取摘要、章节标题和锚点，略过公式、图片、图表和代码。
    - 输出 `web/public/catalog.json` 和 `web/public/note-content/<slug>.json`。
-     正文 JSON 同时包含 HTML 和对应版本。中间 HTML 与原生渲染元数据在 `web/src/generated/`。
-3. `vite-ssg` 在构建时把每篇页面渲染成 HTML，正文来自第 2 步的片段；客户端只加载 Vue 壳。
+     正文 JSON 同时包含 HTML 和对应版本。渲染缓存保存在 `web/src/generated/`，未修改的内容复用 HTML、摘要、目录和正文版本。
+3. `vite-ssg` 根据各页面依赖的正文、目录数据与共享前端资源生成需要更新的页面。发布器沿用上次发布记录，按构建清单复制或移除文件。没有页面输入变化时直接复用前端构建。
 
 **Folia 的角色**：只做 Markdown 解析、数学/Mermaid 原生渲染；不使用它的
 `folia::core.exporter`。HTML writer 在 `native/folia_bridge/bridge.cpp`，负责把 AST

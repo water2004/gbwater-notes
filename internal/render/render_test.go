@@ -4,28 +4,70 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gbwater/internal/anchor"
 	"gbwater/internal/app"
 )
 
+func TestArticleHTMLAndCatalogKeepOnlyRenderedContent(t *testing.T) {
+	width, height := 24.0, 16.0
+	fragment := `<h2 id="chapter-raw_1">章<strong>节</strong><span class="math-inline">\frac{raw_1}{2}</span></h2>
+<p>说明 <em>正文</em> <a href="/reference">链接</a>。</p>
+<div class="math-block">\sum_{raw_2}</div>
+<pre class="mermaid-source"><code>flowchart LR
+A--&gt;B</code></pre>`
+	assets := NativeDocument{Math: map[string]MathEntry{
+		"inline":  {Tex: `\frac{raw_1}{2}`, Width: &width, Height: &height},
+		"display": {Tex: `\sum_{raw_2}`, Display: true, Width: &width, Height: &height},
+	}, Mermaid: map[string]MermaidEntry{
+		"diagram": {Source: "flowchart LR\nA-->B\n"},
+	}}
+	page, err := injectNativeAssets(fragment, assets, "/notes/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = normalizeArticleHeadings(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{`\frac`, `\sum`, "raw_1", "raw_2", "flowchart", "A--&gt;B", "mermaid-source"} {
+		if strings.Contains(page, raw) {
+			t.Errorf("article exposed %q: %s", raw, page)
+		}
+	}
+	for _, rendered := range []string{`id="章节"`, `role="math" aria-label="公式"`, `alt=""`, "inline.svg", "display.svg", "diagram-light.svg", "diagram-dark.svg"} {
+		if !strings.Contains(page, rendered) {
+			t.Errorf("article is missing %q: %s", rendered, page)
+		}
+	}
+	catalog, err := buildCatalog(app.Note{Title: "测试"}, page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Excerpt != "章节 说明 正文 链接。" || len(catalog.Headings) != 1 || catalog.Headings[0] != (Heading{Level: 2, Title: "章节", Slug: "章节"}) {
+		t.Fatalf("unexpected catalog: %+v", catalog)
+	}
+}
+
 func TestReaderArticlesOnlyPublishCatalogBodies(t *testing.T) {
 	root := t.TempDir()
 	publicDir := filepath.Join(root, "public")
-	generatedDir := filepath.Join(root, "generated")
 	published := document{note: app.Note{ID: "math/course/公开", Slug: "public", Revision: "published-revision"}}
 	draft := document{note: app.Note{ID: "math/course/草稿", Slug: "draft", Draft: true}}
-	for _, item := range []document{published, draft} {
-		if err := writeIfChanged(cachedArticlePath(generatedDir, item.note.ID), []byte("<p>"+item.note.ID+"</p>")); err != nil {
-			t.Fatal(err)
+	for _, item := range []*document{&published, &draft} {
+		item.publication.Article = anchor.Article{
+			HTML: "<p>" + item.note.ID + "</p>", Revision: anchor.Revision(item.note.ID),
 		}
 	}
 	dir := filepath.Join(publicDir, "note-content")
 	if err := writeIfChanged(filepath.Join(dir, "withdrawn.json"), []byte("{}")); err != nil {
 		t.Fatal(err)
 	}
-	if err := publishReaderArticles(publicDir, generatedDir, []document{published, draft}); err != nil {
+	if err := publishReaderArticles(publicDir, []document{published, draft}, func(name string, value any) error {
+		return writeJSON(filepath.Join(publicDir, name), value)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "public.json"))
@@ -42,63 +84,6 @@ func TestReaderArticlesOnlyPublishCatalogBodies(t *testing.T) {
 	for _, name := range []string{"draft.json", "withdrawn.json"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s was exposed or inaccessible: %v", name, err)
-		}
-	}
-}
-
-func TestExtractMathSkipsCodeAndDeduplicates(t *testing.T) {
-	source := "行内 $a$ 与 $$b$$。\n\n```\n$ignore$\n```\n\n行内代码 `$alsoIgnore$`\n\n$$\nc\nd\n$$\n\n再写一次 $a$。"
-	got := ExtractMath(source)
-	want := []Formula{
-		{Tex: "a", Display: false},
-		{Tex: "b", Display: true},
-		{Tex: "c\nd", Display: true},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d formulas: %+v", len(got), got)
-	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("formula %d: got %+v want %+v", index, got[index], want[index])
-		}
-	}
-}
-
-func TestExtractMathIgnoresEscapedDollar(t *testing.T) {
-	got := ExtractMath(`价格 \$5，公式 $x$ 结束`)
-	if len(got) != 1 || got[0].Tex != "x" {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestExtractMermaid(t *testing.T) {
-	source := "```mermaid\nflowchart TD\nA-->B\n```\n\n```mermaid\nflowchart TD\nA-->B\n```\n"
-	got := ExtractMermaid(source)
-	if len(got) != 1 || got[0] != "flowchart TD\nA-->B\n" {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestMarkdownBodyStripsFrontmatter(t *testing.T) {
-	for _, source := range []string{
-		"---\ntitle: \"测试\"\n---\n\n正文",
-		"---\r\ntitle: \"测试\"\r\n---\r\n\r\n正文",
-	} {
-		if got := markdownBody(source); got != "正文" {
-			t.Fatalf("got %q", got)
-		}
-	}
-}
-
-func TestPlainText(t *testing.T) {
-	source := "## 标题\n\n![图注](/a.png)\n\n[链接](https://x.test)\n\n公式 $x^2$ 与\n\n$$\ny=1\n$$\n\n`code`"
-	got := plainText(source)
-	if got == "" {
-		t.Fatal("plain text should not be empty")
-	}
-	for _, unwanted := range []string{"$", "![", "```", "/a.png", "https://x.test"} {
-		if contains(got, unwanted) {
-			t.Fatalf("plain text still contains %q: %q", unwanted, got)
 		}
 	}
 }

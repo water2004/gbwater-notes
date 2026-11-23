@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import type { NoteMeta } from '@/types/content'
 import { withCatalogCategories } from './categories'
+import { groupCourses } from './course-groups'
 import { siteSettings } from './siteSettings'
 
 export let publishedNotes: NoteMeta[] = []
@@ -36,18 +37,7 @@ export function getNote(idOrSlug: string): NoteMeta | undefined {
 }
 
 export function getCourses(category?: string) {
-  const groups = new Map<string, { category: string; course: string; courseSlug: string; notes: NoteMeta[] }>()
-  for (const note of publishedNotes) {
-    if (category && note.category !== category) continue
-    const key = `${note.category}/${note.course}`
-    const current = groups.get(key) || { category: note.category, course: note.course, courseSlug: note.courseSlug, notes: [] }
-    current.notes.push(note)
-    groups.set(key, current)
-  }
-  return [...groups.values()].map(group => ({
-    ...group,
-    notes: group.notes.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, 'zh-CN')),
-  }))
+  return groupCourses(publishedNotes, category)
 }
 
 export { headingSlug } from '@/lib/slug'

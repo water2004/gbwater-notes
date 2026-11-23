@@ -155,22 +155,66 @@ func (a *Annotations) prepareArticle(ctx context.Context, noteID string, article
 	return tx.Commit()
 }
 
-func (s *Server) prepareAnnotationPublication(ctx context.Context) error {
+func (s *Server) prepareAnnotationPublication(ctx context.Context, revisions map[string]string) error {
 	directory := filepath.Join(s.config.Root, "web", "public")
 	notes, err := readAnnotationCatalog(directory)
 	if err != nil {
 		return err
 	}
+	type version struct {
+		NoteID   string `json:"note_id"`
+		Revision string `json:"revision"`
+	}
+	versions := make([]version, 0, len(notes))
+	notesByID := make(map[string]publishedAnnotationNote, len(notes))
 	for _, note := range notes {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		article, err := readAnnotationArticle(directory, note.Slug)
-		if err != nil {
+		revision := revisions[note.Slug]
+		if !validArticleRevision(revision) {
+			return fmt.Errorf("定位标注 %s: %w", note.ID, errInvalidArticleRevision)
+		}
+		notesByID[note.ID] = note
+		versions = append(versions, version{NoteID: note.ID, Revision: revision})
+	}
+	if len(versions) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(versions)
+	if err != nil {
+		return err
+	}
+	rows, err := s.annotations.db.QueryContext(ctx, `SELECT source.note_id
+		FROM jsonb_to_recordset($1::jsonb) AS source(note_id text, revision text)
+		WHERE NOT EXISTS (SELECT 1 FROM annotation_articles saved
+			WHERE saved.note_id = source.note_id AND saved.revision = source.revision)`, string(payload))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var pending []string
+	for rows.Next() {
+		var noteID string
+		if err := rows.Scan(&noteID); err != nil {
 			return err
 		}
-		if err := s.annotations.prepareArticle(ctx, note.ID, article); err != nil {
-			return fmt.Errorf("定位标注 %s: %w", note.ID, err)
+		pending = append(pending, noteID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, noteID := range pending {
+		slug := notesByID[noteID].Slug
+		article, err := readAnnotationArticle(directory, slug)
+		if err == nil && article.Revision != revisions[slug] {
+			err = errInvalidArticleRevision
+		}
+		if err == nil {
+			err = s.annotations.prepareArticle(ctx, noteID, article)
+		}
+		if err != nil {
+			return fmt.Errorf("定位标注 %s: %w", noteID, err)
 		}
 	}
 	return nil

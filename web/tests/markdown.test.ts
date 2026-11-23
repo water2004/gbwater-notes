@@ -25,6 +25,9 @@ describe('Markdown native rendering', () => {
     expect(html).toContain('vertical-align:-3.000px')
     expect(html).toContain('class="math-display"')
     expect(html).toContain('/mypdf/generated/math/display.svg')
+    expect(html).toContain('alt=""')
+    expect(html).not.toContain('x^2')
+    expect(html).not.toContain('\\int_0^1')
   })
 
   it('honours an arbitrary deployment base path', () => {
@@ -50,6 +53,15 @@ describe('Markdown native rendering', () => {
     expect(html).toContain('diagram-light.svg')
     expect(html).toContain('diagram-dark.svg')
     expect(html).not.toContain('<script')
+    expect(html).not.toContain('flowchart TD')
+  })
+
+  it('keeps LaTeX and Mermaid source out of preview failures', () => {
+    const html = renderMarkdown('$missingTex$\n\n```mermaid\nflowchart LR\nA-->B\n```')
+    expect(html).toContain('公式未渲染')
+    expect(html).toContain('图表未渲染')
+    expect(html).not.toContain('missingTex')
+    expect(html).not.toContain('flowchart LR')
   })
 
   it('escapes raw HTML and preserves heading anchors', () => {

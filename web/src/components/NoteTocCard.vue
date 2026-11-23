@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
-import { headingSlug } from '@/lib/slug'
 import type { Heading } from '@/types/content'
 
 const props = defineProps<{ headings: Heading[]; activeSlug?: string }>()
@@ -42,7 +41,7 @@ const tree = computed<TocNode[]>(() => {
     const node: TocNode = {
       key: `h-${index}`,
       title: heading.title,
-      slug: headingSlug(heading.title),
+      slug: heading.slug,
       level: heading.level,
       children: [],
     }

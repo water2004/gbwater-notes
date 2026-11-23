@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +14,8 @@ import (
 )
 
 type BuildStatus struct {
+	ID         int64     `json:"id,omitempty"`
+	Queued     int       `json:"queued"`
 	State      string    `json:"state"`
 	StartedAt  time.Time `json:"startedAt,omitzero"`
 	FinishedAt time.Time `json:"finishedAt,omitzero"`
@@ -24,40 +25,54 @@ type BuildStatus struct {
 
 type BuildManager struct {
 	root               string
-	dataDir            string
 	basePath           string
 	timeout            time.Duration
 	mu                 sync.Mutex
 	status             BuildStatus
+	queue              []int64
+	history            *History
 	onFinish           func(BuildStatus)
-	preparePublication func(context.Context) error
+	preparePublication func(context.Context, map[string]string) error
+	publicationInputs  func(context.Context) ([]Note, []string, error)
 }
-
-var errBuildRunning = errors.New("已有一次构建正在运行")
 
 // RenderWorkerArg selects the subprocess owned by a running build. Keeping
 // native DLLs in that process isolates their lifetime and the build timeout.
 const RenderWorkerArg = "--render-worker"
+const RenderManifest = "publication.json"
+
+type RenderedPublication struct {
+	Files    map[string]string `json:"files"`
+	Versions map[string]string `json:"versions"`
+}
 
 type RenderJob struct {
 	Root     string
 	BasePath string
+	Notes    []Note
 }
 
-func NewBuildManager(root, dataDir string, timeout time.Duration, basePath string, preparePublication func(context.Context) error) *BuildManager {
+func NewBuildManager(root string, timeout time.Duration, basePath string, history *History,
+	publicationInputs func(context.Context) ([]Note, []string, error), preparePublication func(context.Context, map[string]string) error) *BuildManager {
 	if basePath == "" {
 		basePath = "/"
 	}
 	return &BuildManager{
-		root: root, dataDir: dataDir, basePath: basePath, timeout: timeout,
-		status: BuildStatus{State: "idle"}, preparePublication: preparePublication,
+		root: root, basePath: basePath, timeout: timeout, history: history,
+		status: BuildStatus{State: "idle"}, preparePublication: preparePublication, publicationInputs: publicationInputs,
 	}
 }
 
 func (b *BuildManager) Status() BuildStatus {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.status
+	return b.statusLocked()
+}
+
+func (b *BuildManager) statusLocked() BuildStatus {
+	status := b.status
+	status.Queued = len(b.queue)
+	return status
 }
 
 func (b *BuildManager) SetOnFinish(callback func(BuildStatus)) {
@@ -66,20 +81,44 @@ func (b *BuildManager) SetOnFinish(callback func(BuildStatus)) {
 	b.onFinish = callback
 }
 
-func (b *BuildManager) Start(prepare func() error) (BuildStatus, error) {
+func (b *BuildManager) Resume(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.status.State == "running" {
-		return b.status, errBuildRunning
+		return nil
 	}
-	// 在取得构建名额后导出设置，避免其它请求改写本次构建正在使用的输入。
-	if err := prepare(); err != nil {
-		return b.status, err
+	ids, err := b.history.resumeBuildQueue(ctx)
+	if err != nil {
+		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
-	b.status = BuildStatus{State: "running", StartedAt: time.Now()}
-	go b.run(ctx, cancel, b.onFinish)
-	return b.status, nil
+	b.queue = ids
+	b.startNext()
+	return nil
+}
+
+func (b *BuildManager) Start(ctx context.Context) (BuildStatus, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	id, err := b.history.enqueueBuild(ctx)
+	if err != nil {
+		return b.statusLocked(), err
+	}
+	b.queue = append(b.queue, id)
+	if b.status.State != "running" {
+		b.startNext()
+	}
+	return b.statusLocked(), nil
+}
+
+// startNext is called with the mutex held, after the previous task has finished.
+func (b *BuildManager) startNext() {
+	if len(b.queue) == 0 {
+		return
+	}
+	id := b.queue[0]
+	b.queue = b.queue[1:]
+	b.status = BuildStatus{ID: id, State: "running", StartedAt: time.Now()}
+	go b.run(b.status, b.onFinish)
 }
 
 func (b *BuildManager) appendLog(text string) {
@@ -99,6 +138,10 @@ func (w buildWriter) Write(data []byte) (int, error) {
 }
 
 func (b *BuildManager) build(ctx context.Context) error {
+	settingsPath := filepath.Join(b.root, "web", "src", "generated", "site-settings.json")
+	if err := b.history.ExportPublicSettings(ctx, settingsPath); err != nil {
+		return fmt.Errorf("导出站点设置: %w", err)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -111,26 +154,50 @@ func (b *BuildManager) build(ctx context.Context) error {
 		command.WaitDelay = 5 * time.Second
 		return command.Run()
 	}
-	job, _ := json.Marshal(RenderJob{Root: b.root, BasePath: b.basePath})
+	notes, assets, err := b.publicationInputs(ctx)
+	if err != nil {
+		return err
+	}
+	job, _ := json.Marshal(RenderJob{Root: b.root, BasePath: b.basePath, Notes: notes})
 	render := exec.CommandContext(ctx, executable, RenderWorkerArg)
 	render.Dir = b.root
 	render.Stdin = bytes.NewReader(job)
 	if err := run(render); err != nil {
 		return err
 	}
-	if err := b.preparePublication(ctx); err != nil {
+	raw, err := os.ReadFile(filepath.Join(b.root, "web", "src", "generated", RenderManifest))
+	if err != nil {
+		return err
+	}
+	var manifest RenderedPublication
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return err
+	}
+	if err := b.preparePublication(ctx, manifest.Versions); err != nil {
 		b.appendLog(fmt.Sprintf("\n[annotations] %v\n", err))
 		return err
 	}
 	frontend := exec.CommandContext(ctx, "node", filepath.Join("scripts", "build.mjs"))
 	frontend.Dir = filepath.Join(b.root, "web")
 	frontend.Env = append(os.Environ(), "GBWATER_BASE_PATH="+b.basePath)
+	input, err := json.Marshal(struct {
+		Rendered map[string]string `json:"rendered"`
+		Assets   []string          `json:"assets"`
+	}{Rendered: manifest.Files, Assets: assets})
+	if err != nil {
+		return err
+	}
+	frontend.Stdin = bytes.NewReader(input)
 	return run(frontend)
 }
 
-func (b *BuildManager) run(ctx context.Context, cancel context.CancelFunc, onFinish func(BuildStatus)) {
+func (b *BuildManager) run(started BuildStatus, onFinish func(BuildStatus)) {
+	ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
 	defer cancel()
-	runErr := b.build(ctx)
+	runErr := b.history.updateQueuedBuild(ctx, started)
+	if runErr == nil {
+		runErr = b.build(ctx)
+	}
 	if runErr != nil && ctx.Err() != nil {
 		runErr = fmt.Errorf("构建超时: %w", ctx.Err())
 	}
@@ -144,15 +211,16 @@ func (b *BuildManager) run(ctx context.Context, cancel context.CancelFunc, onFin
 	} else {
 		status.State = "success"
 	}
-	if data, err := json.MarshalIndent(status, "", "  "); err == nil {
-		if err := atomicWrite(filepath.Join(b.dataDir, "build-status.json"), string(data)); err != nil {
-			log.Printf("save build status: %v", err)
-		}
+	recordCtx, cancelRecord := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := b.history.updateQueuedBuild(recordCtx, status); err != nil {
+		log.Printf("record build status: %v", err)
 	}
+	cancelRecord()
 	if onFinish != nil {
 		onFinish(status)
 	}
 	b.mu.Lock()
 	b.status = status
+	b.startNext()
 	b.mu.Unlock()
 }

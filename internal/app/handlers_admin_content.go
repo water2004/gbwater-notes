@@ -316,17 +316,10 @@ func (s *Server) startBuild(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "build_disabled", "当前部署未启用站内构建，请在构建环境中生成静态产物")
 		return
 	}
-	settingsPath := filepath.Join(s.config.Root, "web", "src", "generated", "site-settings.json")
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	status, err := s.builds.Start(func() error { return s.history.ExportPublicSettings(ctx, settingsPath) })
-	if errors.Is(err, errBuildRunning) {
-		writeError(w, http.StatusConflict, "build_running", err.Error())
-		return
-	}
+	status, err := s.builds.Start(r.Context())
 	if err != nil {
-		log.Printf("export public settings: %v", err)
-		writeError(w, http.StatusInternalServerError, "settings_export_failed", "无法导出站点设置，构建未启动")
+		log.Printf("enqueue build: %v", err)
+		writeError(w, http.StatusInternalServerError, "build_enqueue_failed", "无法将任务加入发布队列")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, buildResponse{BuildStatus: status, Enabled: s.config.BuildEnabled})

@@ -67,7 +67,7 @@ func TestAnnotationPositionsFollowRenderedRevisions(t *testing.T) {
 	}
 	unregistered := writeArticle("dist", "<p>旧静态目录中的正文</p>")
 	oldRevision := writeArticle("public", "<p>前文"+quote+"后文</p>")
-	if err := server.prepareAnnotationPublication(context.Background()); err != nil {
+	if err := server.prepareAnnotationPublication(context.Background(), map[string]string{"rendered": oldRevision}); err != nil {
 		t.Fatal(err)
 	}
 	for revision, status := range map[string]int{"rev-1": http.StatusBadRequest, unregistered: http.StatusConflict} {
@@ -98,7 +98,7 @@ func TestAnnotationPositionsFollowRenderedRevisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	newRevision := writeArticle("public", `<p>🌿新增 前文`+edited+`<img alt="不参与定位">后文</p>`)
-	if err := server.prepareAnnotationPublication(context.Background()); err != nil {
+	if err := server.prepareAnnotationPublication(context.Background(), map[string]string{"rendered": newRevision}); err != nil {
 		t.Fatal(err)
 	}
 	readLocations := func(revision string) (*anchor.Range, *anchor.Range) {
@@ -132,7 +132,7 @@ func TestAnnotationPositionsFollowRenderedRevisions(t *testing.T) {
 		}
 	}
 	missingRevision := writeArticle("public", "<p>引用段落已撤下。</p>")
-	if err := server.prepareAnnotationPublication(context.Background()); err != nil {
+	if err := server.prepareAnnotationPublication(context.Background(), map[string]string{"rendered": missingRevision}); err != nil {
 		t.Fatal(err)
 	}
 	if highlight, sticky := readLocations(missingRevision); highlight != nil || sticky != nil {

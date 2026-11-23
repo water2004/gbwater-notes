@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,26 +30,62 @@ type htmlBridge struct {
 	signature string
 }
 
-// render 让 Folia bridge 生成文章 HTML，再用 native 渲染结果替换公式/图表占位。
-func (bridge *htmlBridge) render(ctx context.Context, doc *document, contentDir, generatedDir string) error {
-	target := cachedArticlePath(generatedDir, doc.note.ID)
-	metadata, err := json.Marshal(doc.native)
+type articlePublication struct {
+	Article anchor.Article
+	Catalog CatalogNote
+}
+
+type cachedArticle struct {
+	Key         string
+	Publication articlePublication
+}
+
+func (bridge *htmlBridge) cacheKey(doc *document, assets NativeDocument) (string, error) {
+	metadata, err := json.Marshal([2]any{assets, doc.publication})
 	if err != nil {
-		return err
+		return "", err
 	}
 	prefix := bridge.signature + "\x00" + bridge.base + "\x00" + doc.note.Revision + "\x00" + string(metadata)
-	cacheKey := func(html []byte) string {
-		digest := sha256.Sum256(append([]byte(prefix), html...))
-		return hex.EncodeToString(digest[:])
+	digest := sha256.Sum256([]byte(prefix))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// prepare uses Folia's parsed math and diagram nodes as the source for asset rendering.
+func (bridge *htmlBridge) prepare(ctx context.Context, doc *document, contentDir, generatedDir string) error {
+	target := cachedArticlePath(generatedDir, doc.note.ID)
+	var cached cachedArticle
+	if content, err := os.ReadFile(target); err == nil && json.Unmarshal(content, &cached) == nil {
+		doc.publication = cached.Publication
+		key, err := bridge.cacheKey(doc, doc.previous)
+		if err != nil {
+			return err
+		}
+		if key == cached.Key {
+			doc.cached = true
+			for _, formula := range doc.previous.Math {
+				doc.formulas = append(doc.formulas, Formula{Tex: formula.Tex, Display: formula.Display})
+			}
+			for _, diagram := range doc.previous.Mermaid {
+				doc.diagrams = append(doc.diagrams, diagram.Source)
+			}
+			return nil
+		}
 	}
-	cached, keyErr := os.ReadFile(target + ".hash")
-	if existing, htmlErr := os.ReadFile(target); keyErr == nil && htmlErr == nil && string(cached) == cacheKey(existing) {
-		return nil
+	if err := bridge.parse(ctx, doc, contentDir); err != nil {
+		return err
 	}
+	doc.collectAssets()
+	return nil
+}
+
+func (bridge *htmlBridge) parse(ctx context.Context, doc *document, contentDir string) error {
 	sourcePath := filepath.Join(contentDir, doc.note.ID+".md")
 	command := exec.CommandContext(ctx, bridge.path, sourcePath)
 	output, err := command.Output()
 	if err != nil {
+		if exited, ok := err.(*exec.ExitError); ok && len(exited.Stderr) > 0 {
+			return fmt.Errorf("folia bridge: %s", strings.TrimSpace(string(exited.Stderr)))
+		}
 		return fmt.Errorf("folia bridge: %w", err)
 	}
 	source, err := os.ReadFile(sourcePath)
@@ -59,22 +96,79 @@ func (bridge *htmlBridge) render(ctx context.Context, doc *document, contentDir,
 	if hex.EncodeToString(digest[:16]) != doc.note.Revision {
 		return fmt.Errorf("渲染期间原文发生修改，请重新构建")
 	}
-	page, err := injectNativeAssets(string(output), doc.native, bridge.base)
+	doc.fragment = string(output)
+	return nil
+}
+
+func (doc *document) collectAssets() {
+	formulas := map[Formula]bool{}
+	for _, display := range []bool{false, true} {
+		pattern := bridgeInlineMathPattern
+		if display {
+			pattern = bridgeBlockMathPattern
+		}
+		for _, match := range pattern.FindAllStringSubmatch(doc.fragment, -1) {
+			formula := Formula{Tex: normalizeMathTex(html.UnescapeString(match[1])), Display: display}
+			if !formulas[formula] {
+				doc.formulas = append(doc.formulas, formula)
+				formulas[formula] = true
+			}
+		}
+	}
+	diagrams := map[string]bool{}
+	for _, match := range bridgeMermaidPattern.FindAllStringSubmatch(doc.fragment, -1) {
+		source := strings.TrimSpace(html.UnescapeString(match[1])) + "\n"
+		if !diagrams[source] {
+			doc.diagrams = append(doc.diagrams, source)
+			diagrams[source] = true
+		}
+	}
+}
+
+func (bridge *htmlBridge) render(ctx context.Context, doc *document, contentDir, generatedDir string) error {
+	if doc.cached {
+		if reflect.DeepEqual(doc.previous, doc.native) {
+			return nil
+		}
+		// A recreated asset may have different geometry.
+		if err := bridge.parse(ctx, doc, contentDir); err != nil {
+			return err
+		}
+		doc.cached = false
+	}
+	page, err := injectNativeAssets(doc.fragment, doc.native, bridge.base)
 	if err != nil {
 		return err
 	}
-	if err := writeIfChanged(target, []byte(page)); err != nil {
+	page, err = normalizeArticleHeadings(page)
+	if err != nil {
 		return err
 	}
-	return writeIfChanged(target+".hash", []byte(cacheKey([]byte(page))))
+	text, err := anchor.RenderedText(page)
+	if err != nil {
+		return err
+	}
+	catalog, err := buildCatalog(doc.note, page)
+	if err != nil {
+		return err
+	}
+	doc.publication = articlePublication{
+		Article: anchor.Article{HTML: page, Revision: anchor.Revision(text)},
+		Catalog: catalog,
+	}
+	key, err := bridge.cacheKey(doc, doc.native)
+	if err != nil {
+		return err
+	}
+	return writeJSON(cachedArticlePath(generatedDir, doc.note.ID), cachedArticle{Key: key, Publication: doc.publication})
 }
 
 func cachedArticlePath(generatedDir, id string) string {
-	return filepath.Join(generatedDir, "notes-html", id+".html")
+	return filepath.Join(generatedDir, "notes-html", id+".json")
 }
 
 // publishReaderArticles exports the same Folia-produced body for Vite and the static site.
-func publishReaderArticles(publicDir, generatedDir string, documents []document) error {
+func publishReaderArticles(publicDir string, documents []document, write func(string, any) error) error {
 	dir := filepath.Join(publicDir, "note-content")
 	published := make(map[string]anchor.Article)
 	for _, doc := range documents {
@@ -85,18 +179,10 @@ func publishReaderArticles(publicDir, generatedDir string, documents []document)
 		if _, exists := published[name]; exists {
 			return fmt.Errorf("重复的公开笔记 slug: %s", doc.note.Slug)
 		}
-		fragment, err := os.ReadFile(cachedArticlePath(generatedDir, doc.note.ID))
-		if err != nil {
-			return fmt.Errorf("读取正文 %s: %w", doc.note.ID, err)
-		}
-		text, err := anchor.RenderedText(string(fragment))
-		if err != nil {
-			return fmt.Errorf("读取正文文本 %s: %w", doc.note.ID, err)
-		}
-		published[name] = anchor.Article{HTML: string(fragment), Revision: anchor.Revision(text)}
+		published[name] = doc.publication.Article
 	}
 	for name, payload := range published {
-		if err := writeJSON(filepath.Join(dir, name), payload); err != nil {
+		if err := write("note-content/"+name, payload); err != nil {
 			return err
 		}
 	}
@@ -149,7 +235,6 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 
 	var injectionErr error
 	renderMath := func(tex string, display bool) string {
-		escaped := html.EscapeString(tex)
 		found, ok := math[mathLookupKey(tex, display)]
 		if !ok || found.entry.Error != "" || found.entry.Width == nil || found.entry.Height == nil {
 			message := "公式未预渲染"
@@ -165,13 +250,12 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 		if entry.Baseline != nil {
 			baseline = *entry.Baseline
 		}
-		image := `<img class="math-image" src="` + base + `generated/math/` + found.key + `.svg" alt="` + escaped +
-			`" title="点击放大公式" width="` + width + `" height="` + height +
+		image := `<img class="math-image" src="` + base + `generated/math/` + found.key + `.svg" alt="" width="` + width + `" height="` + height +
 			`" style="vertical-align:` + formatFloat(baseline-*entry.Height) + `px" loading="lazy" decoding="async">`
 		if display {
-			return `<div class="math-display" role="math" aria-label="` + escaped + `">` + image + `</div>`
+			return `<div class="math-display" role="math" aria-label="公式">` + image + `</div>`
 		}
-		return `<span class="math-inline" role="math" aria-label="` + escaped + `">` + image + `</span>`
+		return `<span class="math-inline" role="math" aria-label="公式">` + image + `</span>`
 	}
 
 	page = bridgeInlineMathPattern.ReplaceAllStringFunc(page, func(match string) string {
@@ -215,15 +299,15 @@ func injectNativeAssets(page string, native NativeDocument, base string) (string
 }
 
 func mathLookupKey(tex string, display bool) string {
+	return mathKey(normalizeMathTex(tex), display)
+}
+
+func normalizeMathTex(tex string) string {
 	lines := strings.Split(strings.ReplaceAll(tex, "\r\n", "\n"), "\n")
 	for index := range lines {
 		lines[index] = strings.TrimSpace(lines[index])
 	}
-	prefix := "0"
-	if display {
-		prefix = "1"
-	}
-	return prefix + "\x00" + strings.Join(lines, "\n")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func formatFloat(value float64) string {

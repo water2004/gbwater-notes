@@ -169,6 +169,9 @@ func (s *ContentStore) List() ([]Note, error) {
 			return err
 		}
 		id := strings.TrimSuffix(filepath.ToSlash(relative), ".md")
+		if _, err := s.path(id); err != nil {
+			return fmt.Errorf("%s: %w", id, err)
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err

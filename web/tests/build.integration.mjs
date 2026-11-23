@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +23,7 @@ cpSync(join(repo, 'web/public/favicon.svg'), join(web, 'public/favicon.svg'))
 const imageDir = join(fixture, 'data', 'content-assets')
 mkdirSync(imageDir, { recursive: true })
 writeFileSync(join(imageDir, 'test.svg'), '<svg xmlns="http://www.w3.org/2000/svg" />')
+writeFileSync(join(imageDir, 'unregistered.svg'), '<svg xmlns="http://www.w3.org/2000/svg" />')
 symlinkSync(imageDir, join(publicDir, 'content-assets'), 'junction')
 mkdirSync(join(fixture, 'internal/app'), {recursive:true})
 cpSync(join(repo, 'internal/app/default_categories.json'), join(fixture, 'internal/app/default_categories.json'))
@@ -46,7 +48,14 @@ for (const note of [first, sibling, unrelated]) {
 writeArticle({ slug: 'unlisted' }, '<p>不在公开目录里</p>')
 writeFileSync(catalog, JSON.stringify([first, sibling, unrelated]))
 function build(expected = 0, env = {}) {
-  const result = spawnSync(process.execPath, ['scripts/build.mjs'], {cwd: web, encoding:'utf8', env: {...process.env, GBWATER_BASE_PATH:'/regression/', ...env}})
+  const selected = JSON.parse(readFileSync(catalog, 'utf8'))
+  const rendered = {}
+  for (const name of ['catalog.json', ...selected.map(note => `note-content/${note.slug}.json`)]) {
+    const file = join(publicDir, name)
+    if (existsSync(file)) rendered[name] = createHash('sha256').update(readFileSync(file)).digest('hex')
+  }
+  const input = JSON.stringify({ rendered, assets: ['test.svg'] })
+  const result = spawnSync(process.execPath, ['scripts/build.mjs'], {cwd: web, input, encoding:'utf8', env: {...process.env, GBWATER_BASE_PATH:'/regression/', ...env}})
   assert.equal(result.status, expected, result.stdout + result.stderr)
   const summary = result.stdout.split(/\r?\n/).filter(line => /\[(?:pages|publish)\]/.test(line)).join(' ')
   console.log(summary || result.stderr.split(/\r?\n/).find(line => line.startsWith('Error:')))
@@ -69,6 +78,7 @@ try {
   assert.deepEqual(readFileSync(join(dist, 'note-content/first.json')), readFileSync(body(first)))
   assert.deepEqual(readFileSync(join(dist, 'catalog.json')), readFileSync(catalog))
   assert.deepEqual(readFileSync(join(dist, 'content-assets/test.svg')), readFileSync(join(imageDir, 'test.svg')))
+  assert(!existsSync(join(dist, 'content-assets/unregistered.svg')))
   assert(!existsSync(join(dist, 'note-content/unlisted.json')))
   assert.match(build(), /rendered 0, reused \d+.*updated 0, removed 0/)
   assert.deepEqual(fileTimes(), initial)
@@ -80,7 +90,7 @@ try {
   first.excerpt = '修改过的摘要'
   first.characters = 37
   writeFileSync(catalog, JSON.stringify([first, sibling, unrelated]))
-  build()
+  assert.match(build(), /rendered 3, reused \d+.*updated 4, removed 0/)
   const metadataUpdate = fileTimes()
   assert.equal(metadataUpdate['notes/sibling/index.html'], initial['notes/sibling/index.html'])
   assert.equal(metadataUpdate['notes/unrelated/index.html'], initial['notes/unrelated/index.html'])

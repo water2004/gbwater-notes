@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +25,19 @@ type SearchDocument struct {
 	Text     string `json:"text"`
 	Excerpt  string `json:"excerpt"`
 }
+
+type indexedSearchDocument struct {
+	SearchDocument
+	Digest string `json:"contentDigest"`
+}
+
+func searchableDocument(document SearchDocument) indexedSearchDocument {
+	encoded, _ := json.Marshal(document)
+	digest := sha256.Sum256(encoded)
+	return indexedSearchDocument{SearchDocument: document, Digest: hex.EncodeToString(digest[:])}
+}
+
+var errSearchIndexMissing = errors.New("Meilisearch notes index does not exist")
 
 type SearchResult struct {
 	ID       string  `json:"id"`
@@ -88,6 +103,14 @@ func (c *SearchClient) request(ctx context.Context, method, path string, body an
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusNotFound {
+			var problem struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(message, &problem) == nil && problem.Code == "index_not_found" {
+				return errSearchIndexMissing
+			}
+		}
 		return fmt.Errorf("Meilisearch %s: %s", response.Status, strings.TrimSpace(string(message)))
 	}
 	if target == nil {
@@ -115,6 +138,14 @@ func (c *SearchClient) Configure(ctx context.Context) error {
 }
 
 func (c *SearchClient) IndexDocuments(ctx context.Context, documents []SearchDocument) error {
+	indexed := make([]indexedSearchDocument, 0, len(documents))
+	for _, document := range documents {
+		indexed = append(indexed, searchableDocument(document))
+	}
+	return c.indexDocuments(ctx, indexed)
+}
+
+func (c *SearchClient) indexDocuments(ctx context.Context, documents []indexedSearchDocument) error {
 	if len(documents) == 0 {
 		return nil
 	}
@@ -123,6 +154,53 @@ func (c *SearchClient) IndexDocuments(ctx context.Context, documents []SearchDoc
 	}
 	var target any
 	return c.request(ctx, http.MethodPost, "/indexes/notes/documents?primaryKey=id", documents, &target)
+}
+
+func (c *SearchClient) syncDocuments(ctx context.Context, documents []SearchDocument, drafts []string) error {
+	indexed := map[string]string{}
+	const limit = 250
+	for offset := 0; ; {
+		var page struct {
+			Results []struct {
+				ID     string `json:"id"`
+				Digest string `json:"contentDigest"`
+			} `json:"results"`
+			Total int `json:"total"`
+		}
+		path := fmt.Sprintf("/indexes/notes/documents?fields=id,contentDigest&limit=%d&offset=%d", limit, offset)
+		err := c.request(ctx, http.MethodGet, path, nil, &page)
+		if offset == 0 && errors.Is(err, errSearchIndexMissing) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		for _, document := range page.Results {
+			indexed[document.ID] = document.Digest
+		}
+		offset += len(page.Results)
+		if len(page.Results) == 0 || offset >= page.Total {
+			break
+		}
+	}
+
+	var changed []indexedSearchDocument
+	for _, document := range documents {
+		entry := searchableDocument(document)
+		if indexed[entry.ID] != entry.Digest {
+			changed = append(changed, entry)
+		}
+	}
+	if err := c.indexDocuments(ctx, changed); err != nil {
+		return err
+	}
+	var staleDrafts []string
+	for _, slug := range drafts {
+		if _, exists := indexed[slug]; exists {
+			staleDrafts = append(staleDrafts, slug)
+		}
+	}
+	return c.DeleteDocuments(ctx, staleDrafts)
 }
 
 func (c *SearchClient) DeleteDocuments(ctx context.Context, ids []string) error {

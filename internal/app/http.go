@@ -71,17 +71,23 @@ func NewServer(config Config) (*Server, error) {
 		mux:         http.NewServeMux(),
 	}
 	server.store.record = server.history.RecordRevision
-	server.builds = NewBuildManager(config.Root, config.DataDir(), config.BuildTimeout, config.BasePath, server.prepareAnnotationPublication)
+	server.assets.record = server.history.recordPublicationAsset
+	server.builds = NewBuildManager(config.Root, config.BuildTimeout, config.BasePath, server.history,
+		server.publicationInputs, server.prepareAnnotationPublication)
 	server.builds.SetOnFinish(func(status BuildStatus) {
-		if err := server.history.RecordBuild(status); err != nil {
-			log.Printf("record build history: %v", err)
-		}
 		if status.State == "success" {
 			server.SyncContent()
 		}
 	})
 	server.routes()
 	return server, nil
+}
+
+func (s *Server) ResumeBuilds(ctx context.Context) error {
+	if !s.config.BuildEnabled {
+		return nil
+	}
+	return s.builds.Resume(ctx)
 }
 
 // prepareDatabase 打开并初始化连接池。注入的 *sql.DB 视为调用方已准备好的测试库，
@@ -128,36 +134,15 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) SyncContent() {
-	notes, err := s.store.List()
-	if err != nil {
-		log.Printf("list content for sync: %v", err)
-		return
-	}
-	documents := []SearchDocument{}
-	drafts := []string{}
-	for _, note := range notes {
-		document, err := s.store.Read(note.ID)
-		if err != nil {
-			log.Printf("read content for sync: %v", err)
-			continue
-		}
-		if err := s.history.IndexDocument(document); err != nil {
-			log.Printf("index PostgreSQL content: %v", err)
-			continue
-		}
-		if note.Draft {
-			drafts = append(drafts, note.Slug)
-		} else {
-			documents = append(documents, searchDocument(document))
-		}
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := s.search.IndexDocuments(ctx, documents); err != nil {
-		log.Printf("index Meilisearch content: %v", err)
+	documents, drafts, err := s.history.searchDocuments(ctx)
+	if err != nil {
+		log.Printf("read content index: %v", err)
+		return
 	}
-	if err := s.search.DeleteDocuments(ctx, drafts); err != nil {
-		log.Printf("remove Meilisearch drafts: %v", err)
+	if err := s.search.syncDocuments(ctx, documents, drafts); err != nil {
+		log.Printf("sync Meilisearch content: %v", err)
 	}
 }
 
@@ -212,6 +197,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/admin/auth-policy", s.requireAdmin(s.saveAuthPolicy))
 	s.mux.HandleFunc("GET /api/admin/notes", s.requireAdmin(s.notes))
 	s.mux.HandleFunc("POST /api/admin/notes", s.requireAdmin(s.createNote))
+	s.mux.HandleFunc("POST /api/admin/document-packages", s.requireAdmin(s.importDocumentPackage))
+	s.mux.HandleFunc("POST /api/admin/document-packages/export", s.requireAdmin(s.exportDocumentPackage))
 	s.mux.HandleFunc("GET /api/admin/assets", s.requireAdmin(s.listAssets))
 	s.mux.HandleFunc("POST /api/admin/assets", s.requireAdmin(s.uploadAsset))
 	s.mux.HandleFunc("PATCH /api/admin/assets", s.requireAdmin(s.moveAsset))

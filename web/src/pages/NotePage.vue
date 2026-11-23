@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { trackNoteView } from '@/lib/analytics'
-import { categoryName, coursePath, getNote, headingSlug, notePath, notesForCourse } from '@/lib/content'
+import { categoryName, coursePath, getNote, notePath, notesForCourse } from '@/lib/content'
 import { useReadingProgress } from '@/lib/progress'
 import { useRecentNotes } from '@/lib/recent'
 import { useFavorites } from '@/lib/favorites'
@@ -101,7 +101,7 @@ const courseNotes = computed(() => note.value ? notesForCourse(note.value.catego
 const currentIndex = computed(() => courseNotes.value.findIndex(item => item.id === id.value))
 const previous = computed(() => currentIndex.value > 0 ? courseNotes.value[currentIndex.value - 1] : undefined)
 const next = computed(() => currentIndex.value >= 0 ? courseNotes.value[currentIndex.value + 1] : undefined)
-const activeHeadingTitle = computed(() => note.value?.headings.find(heading => headingSlug(heading.title) === activeHeading.value)?.title)
+const activeHeadingTitle = computed(() => note.value?.headings.find(heading => heading.slug === activeHeading.value)?.title)
 const { completed, toggleCompleted, markRead } = useReadingProgress()
 const { isFavorite, toggleFavorite } = useFavorites()
 const { markRecent } = useRecentNotes()
@@ -131,8 +131,6 @@ async function copyLink() {
 function changeFont(direction: number) {
   updateReadingSettings({ fontScale: Math.min(1.35, Math.max(0.85, Math.round((fontScale.value + direction * 0.05) * 100) / 100)) })
 }
-
-function printPage() { window.print() }
 
 // 公式只作为正文排版的一部分，不提供点击放大；正文里真正的插图才放大查看。
 function zoomImage(event: MouseEvent) {
@@ -250,7 +248,6 @@ onBeforeUnmount(() => {
                   <button class="text-link" @click="resetReadingSettings()">恢复默认</button>
                 </div>
               </details>
-              <button title="打印或另存为 PDF" @click="printPage"><AppIcon name="print" :size="16" />打印</button>
               <button :class="{ completed: isFavorite(note.id) }" :aria-pressed="isFavorite(note.id)" @click="toggleFavorite(note.id)"><AppIcon name="heart" :size="16" />{{ isFavorite(note.id) ? '已收藏' : '收藏' }}</button>
               <button v-if="session.user" title="记录当前阅读位置" @click="annotations.addBookmark()"><AppIcon name="bookmark" :size="16" />书签</button>
               <button v-if="session.user" title="划线、批注与便条" @click="annotations.openDrawer()"><AppIcon name="highlight" :size="16" />标注<span v-if="annotationCount" class="count-badge">{{ annotationCount }}</span></button>
@@ -261,7 +258,7 @@ onBeforeUnmount(() => {
           <details ref="mobileToc" class="mobile-toc">
             <summary><span>本文大纲</span><small>{{ activeHeadingTitle || `${note.headings.length} 个章节` }}</small><AppIcon name="chevronDown" :size="16" /></summary>
             <nav @click="mobileToc?.removeAttribute('open')">
-              <a v-for="heading in note.headings" :key="`${heading.level}-${heading.title}`" :href="`#${headingSlug(heading.title)}`" :class="[`level-${heading.level}`, { active: activeHeading === headingSlug(heading.title) }]">{{ heading.title }}</a>
+              <a v-for="heading in note.headings" :key="heading.slug" :href="`#${heading.slug}`" :class="[`level-${heading.level}`, { active: activeHeading === heading.slug }]">{{ heading.title }}</a>
             </nav>
           </details>
 

@@ -32,6 +32,33 @@
   background: var(--surface);
 }
 .admin-dialog-header h2 { margin: 0; font-size: 18px; }
+.package-actions, .package-selection, .package-summary {
+  display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+}
+.package-selection { padding: 8px 0 12px; color: var(--text-soft); font-size: 13px; }
+.package-selection > .button { margin-inline-start: auto; }
+.package-checkbox { width: 40px; }
+.package-checkbox input { accent-color: var(--accent); }
+.package-dialog-body { display: grid; gap: 14px; padding: 16px; overflow: auto; }
+.package-file-label { display: grid; gap: 6px; font-size: 13px; }
+.package-file-label input { width: 100%; }
+.package-file-label input::file-selector-button {
+  margin-inline-end: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+}
+.package-summary { font-size: 13px; }
+.package-summary span { padding: 4px 8px; background: var(--accent-soft); border-radius: 6px; }
+.package-notes, .package-conflicts { list-style: none; margin: 0; padding: 0; }
+.package-notes { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.package-notes li, .package-conflicts li { padding: 8px 10px; overflow-wrap: anywhere; }
+.package-notes li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.package-notes li + li { border-top: 1px solid var(--line); }
+.package-notes small, .package-conflicts span { display: block; color: var(--text-soft); font-size: 12px; }
+.package-conflicts { max-height: 160px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.package-dialog-body > .package-actions { justify-content: flex-end; }
+.package-image-changes { font-size: 13px; overflow-wrap: anywhere; }
+.package-image-changes summary { cursor: pointer; }
+.package-replace { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
 .editor-page { --editor-math: #674697; display: flex; flex-direction: column; height: max(360px, 100dvh); background: var(--surface); }
 .dark .editor-page { --editor-math: #ccb6ed; }
 .editor-page-header {

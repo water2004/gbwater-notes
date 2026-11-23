@@ -37,8 +37,9 @@ type Asset struct {
 }
 
 type AssetStore struct {
-	root string
-	mu   sync.Mutex
+	root   string
+	mu     sync.Mutex
+	record func(string, bool) error
 }
 
 func assetInfo(id string, info fs.FileInfo) Asset {
@@ -212,6 +213,11 @@ func (s *AssetStore) add(folder, name string, data []byte) (Asset, error) {
 	if err != nil {
 		return Asset{}, err
 	}
+	if s.record != nil {
+		if err := s.record(id, true); err != nil {
+			return Asset{}, errors.Join(err, root.Remove(target))
+		}
+	}
 	return assetInfo(id, info), nil
 }
 
@@ -241,7 +247,15 @@ func (s *AssetStore) move(id string, restore bool) error {
 	if err := root.MkdirAll(path.Dir(target), 0o755); err != nil {
 		return err
 	}
-	return root.Rename(source, target)
+	if err := root.Rename(source, target); err != nil {
+		return err
+	}
+	if s.record != nil {
+		if err := s.record(id, restore); err != nil {
+			return errors.Join(err, root.Rename(target, source))
+		}
+	}
+	return nil
 }
 
 func readAssetUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {

@@ -2,6 +2,8 @@ import { inject, onBeforeUnmount, provide, ref, type InjectionKey } from 'vue'
 import { api, ApiError } from './api'
 
 export interface BuildStatus {
+  id?: number
+  queued: number
   state: 'idle' | 'running' | 'success' | 'failed'
   enabled: boolean
   startedAt?: string
@@ -58,7 +60,7 @@ export function provideAdminPublish() {
   }
 
   async function start() {
-    if (starting.value || !status.value?.enabled || status.value.state === 'running') return
+    if (starting.value || !status.value?.enabled) return
     starting.value = true
     error.value = ''
     try {
@@ -66,11 +68,7 @@ export function provideAdminPublish() {
       schedule()
     } catch (reason) {
       if (requests.signal.aborted) return
-      if (reason instanceof ApiError && reason.code === 'build_running') {
-        await refresh()
-      } else {
-        error.value = reason instanceof Error ? reason.message : '发布启动失败'
-      }
+      error.value = reason instanceof Error ? reason.message : '发布任务入队失败'
     } finally {
       starting.value = false
     }

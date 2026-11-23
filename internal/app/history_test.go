@@ -16,11 +16,11 @@ func TestPostgreSQLHistory(t *testing.T) {
 	history := &History{db: db}
 	defer history.Close()
 	now := time.Now()
-	status := BuildStatus{State: "success", StartedAt: now.Add(-time.Second), FinishedAt: now, Log: "ok"}
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO builds(state, started_at, finished_at, log, error) VALUES($1,$2,$3,$4,$5)`)).
-		WithArgs(status.State, status.StartedAt, status.FinishedAt, status.Log, status.Error).
+	status := BuildStatus{ID: 1, State: "success", StartedAt: now.Add(-time.Second), FinishedAt: now, Log: "ok"}
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE builds SET state=$2, started_at=$3, finished_at=$4, log=$5, error=$6 WHERE id=$1`)).
+		WithArgs(status.ID, status.State, status.StartedAt, status.FinishedAt, status.Log, status.Error).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	if err := history.RecordBuild(status); err != nil {
+	if err := history.updateQueuedBuild(t.Context(), status); err != nil {
 		t.Fatal(err)
 	}
 	document := Document{Note: Note{ID: "math/课程/笔记", Title: "笔记", Slug: "note", CourseSlug: "course", Revision: "abc123", Modified: now}, Content: "content"}
@@ -33,7 +33,7 @@ func TestPostgreSQLHistory(t *testing.T) {
 	if err := history.RecordRevision(document, "create", nil); err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery(`SELECT id, state, started_at, finished_at, error FROM builds ORDER BY id DESC LIMIT \$1`).
+	mock.ExpectQuery(`SELECT id, state, started_at, finished_at, error FROM builds WHERE state IN \('success','failed'\) ORDER BY id DESC LIMIT \$1`).
 		WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"id", "state", "started_at", "finished_at", "error"}).AddRow(1, "success", now, now, ""))
 	builds, err := history.RecentBuilds(t.Context(), 10)
 	if err != nil || len(builds) != 1 || builds[0].State != "success" {

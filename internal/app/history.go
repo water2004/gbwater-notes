@@ -74,8 +74,48 @@ type sqlExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-func (h *History) IndexDocument(document Document) error {
-	return h.indexDocument(h.db, document)
+func publicationNotes(ctx context.Context, tx *sql.Tx) ([]Note, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, slug, course_slug, title, category, category_title, course,
+		position, draft, revision FROM notes ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	notes := []Note{}
+	for rows.Next() {
+		var note Note
+		if err := rows.Scan(&note.ID, &note.Slug, &note.CourseSlug, &note.Title, &note.Category,
+			&note.CategoryTitle, &note.Course, &note.Order, &note.Draft, &note.Revision); err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, rows.Err()
+}
+
+func (h *History) searchDocuments(ctx context.Context) ([]SearchDocument, []string, error) {
+	rows, err := h.db.QueryContext(ctx, `SELECT id, slug, title, course, category, draft, plain_text,
+		left(plain_text, 260) FROM notes`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var documents []SearchDocument
+	var drafts []string
+	for rows.Next() {
+		var document SearchDocument
+		var draft bool
+		if err := rows.Scan(&document.NoteID, &document.ID, &document.Title, &document.Course,
+			&document.Category, &draft, &document.Text, &document.Excerpt); err != nil {
+			return nil, nil, err
+		}
+		if draft {
+			drafts = append(drafts, document.ID)
+		} else {
+			documents = append(documents, document)
+		}
+	}
+	return documents, drafts, rows.Err()
 }
 
 func (h *History) indexDocument(db sqlExecer, document Document) error {
@@ -93,7 +133,8 @@ func (h *History) indexDocument(db sqlExecer, document Document) error {
 		category=EXCLUDED.category, category_title=EXCLUDED.category_title, course=EXCLUDED.course,
 		position=EXCLUDED.position, draft=EXCLUDED.draft, content=EXCLUDED.content,
 		plain_text=EXCLUDED.plain_text, excerpt=EXCLUDED.excerpt, revision=EXCLUDED.revision,
-		modified_at=EXCLUDED.modified_at`,
+		modified_at=EXCLUDED.modified_at
+	WHERE (notes.revision, notes.modified_at) IS DISTINCT FROM (EXCLUDED.revision, EXCLUDED.modified_at)`,
 		document.Note.ID, document.Note.Slug, document.Note.CourseSlug, document.Note.Title,
 		document.Note.Category, document.Note.CategoryTitle, document.Note.Course, document.Note.Order,
 		document.Note.Draft, document.Content, plain, string(excerpt), document.Note.Revision, document.Note.Modified,
@@ -101,8 +142,33 @@ func (h *History) indexDocument(db sqlExecer, document Document) error {
 	return err
 }
 
-func (h *History) RecordBuild(status BuildStatus) error {
-	_, err := h.db.Exec(`INSERT INTO builds(state, started_at, finished_at, log, error) VALUES($1,$2,$3,$4,$5)`, status.State, status.StartedAt, status.FinishedAt, status.Log, status.Error)
+func (h *History) enqueueBuild(ctx context.Context) (int64, error) {
+	var id int64
+	err := h.db.QueryRowContext(ctx, `INSERT INTO builds(state, started_at, finished_at)
+		VALUES('queued', now(), now()) RETURNING id`).Scan(&id)
+	return id, err
+}
+
+func (h *History) resumeBuildQueue(ctx context.Context) ([]int64, error) {
+	rows, err := h.db.QueryContext(ctx, `SELECT id FROM builds WHERE state IN ('queued','running') ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (h *History) updateQueuedBuild(ctx context.Context, status BuildStatus) error {
+	_, err := h.db.ExecContext(ctx, `UPDATE builds SET state=$2, started_at=$3, finished_at=$4, log=$5, error=$6 WHERE id=$1`,
+		status.ID, status.State, status.StartedAt, status.FinishedAt, status.Log, status.Error)
 	return err
 }
 
@@ -112,6 +178,13 @@ func (h *History) RecordRevision(document Document, action string, before *Docum
 		return err
 	}
 	defer tx.Rollback()
+	if err := h.recordRevision(tx, document, action, before); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (h *History) recordRevision(tx *sql.Tx, document Document, action string, before *Document) error {
 	if err := h.indexDocument(tx, document); err != nil {
 		return err
 	}
@@ -124,15 +197,13 @@ func (h *History) RecordRevision(document Document, action string, before *Docum
 			return err
 		}
 	}
-	_, err = tx.Exec(`INSERT INTO revisions(note_id, revision, title, action, content, created_at) VALUES($1,$2,$3,$4,$5,$6)`, document.Note.ID, document.Note.Revision, document.Note.Title, action, document.Content, time.Now())
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := tx.Exec(`INSERT INTO revisions(note_id, revision, title, action, content, created_at) VALUES($1,$2,$3,$4,$5,$6)`, document.Note.ID, document.Note.Revision, document.Note.Title, action, document.Content, time.Now())
+	return err
 }
 
 func (h *History) RecentBuilds(ctx context.Context, limit int) ([]BuildRecord, error) {
-	rows, err := h.db.QueryContext(ctx, `SELECT id, state, started_at, finished_at, error FROM builds ORDER BY id DESC LIMIT $1`, limit)
+	rows, err := h.db.QueryContext(ctx, `SELECT id, state, started_at, finished_at, error FROM builds
+		WHERE state IN ('success','failed') ORDER BY id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -14,11 +14,6 @@ const notesByID = new Map(publishedNotes.map(note => [note.id, note]))
 const featuredNote = ref(publishedNotes[0])
 const shuffling = ref(false)
 const recentNotes = computed(recent.notes)
-const featuredExcerpt = computed(() => {
-  const note = featuredNote.value
-  if (!/\b(math[a-z]+|dfrac|frac|quad|qquad|boldsymbol|begin|end)\b|[\\{}^_]/i.test(note.excerpt)) return note.excerpt
-  return note.headings.filter(heading => heading.title !== note.title).slice(0, 2).map(heading => heading.title).join(' · ')
-})
 const popularNotes = computed(() => {
   const recentIds = new Set(recentNotes.value.map(note => note.id))
   return popular.value.flatMap(item => {
@@ -61,7 +56,7 @@ onMounted(() => {
           <div :key="featuredNote.id" class="hero-note-content" aria-live="polite">
             <span class="hero-note-category">{{ categoryName(featuredNote.category, featuredNote.categoryTitle) }} · {{ featuredNote.course }}</span>
             <RouterLink :to="notePath(featuredNote)" class="hero-note-title"><strong>{{ featuredNote.title }}</strong></RouterLink>
-            <span v-if="featuredExcerpt" class="hero-note-excerpt">{{ featuredExcerpt }}</span>
+            <span v-if="featuredNote.excerpt" class="hero-note-excerpt">{{ featuredNote.excerpt }}</span>
             <div class="hero-note-meta"><span>{{ formatMinutes(siteSettings.home.minutesTemplate, featuredNote.readingMinutes) }}</span><RouterLink :to="notePath(featuredNote)">{{ siteSettings.home.readLabel }}<AppIcon name="arrowRight" :size="17" /></RouterLink></div>
           </div>
         </Transition>

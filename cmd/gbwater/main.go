@@ -18,7 +18,7 @@ func main() {
 		if err := json.NewDecoder(os.Stdin).Decode(&job); err != nil {
 			log.Fatalf("读取构建任务: %v", err)
 		}
-		if err := render.Run(context.Background(), job.Root, job.BasePath, os.Stdout); err != nil {
+		if err := render.Run(context.Background(), job.Root, job.BasePath, job.Notes, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -41,6 +41,12 @@ func runServer() {
 	defer application.Close()
 	if err := application.Bootstrap(context.Background()); err != nil {
 		log.Printf("引导管理员账号失败: %v", err)
+	}
+	if err := application.InitializeContent(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+	if err := application.ResumeBuilds(context.Background()); err != nil {
+		log.Fatal(err)
 	}
 	go application.SyncContent()
 	server := &http.Server{

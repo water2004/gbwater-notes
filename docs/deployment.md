@@ -39,9 +39,11 @@ curl -fsS https://notes.example.com/mypdf/api/health
 
 健康检查通过后，从 HTTPS 的 `/mypdf/admin/` 进入后台，再点击「构建并发布」生成公开首页和笔记。
 
+文档包上传使用 nginx 示例中的精确匹配 location，最大 64 MiB。自定义 API 前缀时，使用该前缀拼接 `admin/document-packages`。 [文档包使用与格式](document-package.md)
+
 ## 修改和发布内容
 
-1. 登录站点后台。新建笔记，或导入自己的 Markdown 目录及图床文件。
+1. 首次启动前可以准备现有 Markdown 和图床目录。站点运行后，通过后台 API 编辑笔记和管理图片。
 2. 从「发布」点击「构建并发布」。容器内的 Go 服务调用 Linux Folia 生成 HTML、公式与图表，再运行 Vite SSG。宿主机 nginx 随即读取更新后的 `frontend/`。
 3. 访问站点首页、笔记与公开 API 前缀下的 `health`（如 `/mypdf/api/health`）确认。修改目录、学科或站点文案后使用同一个发布入口。
 
@@ -84,7 +86,7 @@ curl -fsS https://notes.example.com/mypdf/api/health
 
 1. 用 [v1.0.1 Compose 配置](../docker-compose.yml) 更新现有配置，保留部署时自定义的目录和端口。在原 `.env` 将 `GBWATER_IMAGE` 改为 `ghcr.io/water2004/gbwater-notes:1.0.1`，设置 `GBWATER_API_BASE_PATH` 或留空使用默认值。
 2. 执行 `docker compose pull`、`docker compose up -d --wait db search`。按首次启动步骤重新查网关并更新 `.env`，再执行 `docker compose up -d --wait`。启动后的登录和后台页面会使用新路径。
-3. 同步更新 nginx 的 API location 和 `admin-assets/` 配置，检查配置并重载。通过 HTTPS 登录后台，点击「构建并发布」。这一步会更新公开页的 API 路径，并计算已有划线、书签和便签在当前正文中的位置。完成后刷新旧阅读页。
+3. 同步更新 nginx 的 API location、文档包上传 location 和 `admin-assets/` 配置，检查配置并重载。通过 HTTPS 登录后台，点击「构建并发布」。这一步会更新公开页的 API 路径，并计算已有划线、书签和便签在当前正文中的位置。完成后刷新旧阅读页。
 
 ### 从 v1.0.0 的 PostgreSQL 命名卷迁移
 

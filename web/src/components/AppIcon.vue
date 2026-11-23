@@ -33,7 +33,6 @@ const icons: Record<string, string> = {
   logout: '<path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10"/>',
   dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 13v7H4V6h7"/>',
-  print: '<path d="M7 8V3h10v5M7 17H4V9h16v8h-3M7 14h10v7H7z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
   eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',

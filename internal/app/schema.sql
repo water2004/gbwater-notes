@@ -53,6 +53,14 @@ CREATE TABLE IF NOT EXISTS site_settings (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS publication_assets (
+    id TEXT PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS publication_inventory (
+    initialized BOOLEAN PRIMARY KEY CHECK (initialized)
+);
+
 -- 用户：邮箱与用户名都按 lower() 建唯一索引，避免大小写重复注册。
 CREATE TABLE IF NOT EXISTS auth_policy (
     id SMALLINT PRIMARY KEY CHECK (id = 1),
