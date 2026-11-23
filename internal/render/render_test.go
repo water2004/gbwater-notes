@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gbwater/internal/anchor"
 	"gbwater/internal/app"
 )
 
@@ -31,11 +32,11 @@ func TestReaderArticlesOnlyPublishCatalogBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var article readerArticle
+	var article anchor.Article
 	if err := json.Unmarshal(data, &article); err != nil {
 		t.Fatal(err)
 	}
-	if article.Revision != published.note.Revision || article.HTML != "<p>"+published.note.ID+"</p>" {
+	if article.Revision != anchor.Revision(published.note.ID) || article.HTML != "<p>"+published.note.ID+"</p>" {
 		t.Fatalf("unexpected article: %+v", article)
 	}
 	for _, name := range []string{"draft.json", "withdrawn.json"} {

@@ -48,20 +48,21 @@
 ## 标注
 
 以下接口只访问当前用户的标注。查询参数中的 `noteId` 是笔记 ID，路径中的 `id` 是标注记录 ID。
+读取位置、新建标注和移动书签必须提供当前正文 `revision`。格式无效返回 `400 invalid_revision`，
+未登记的版本返回 `409 revision_unavailable`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/me/annotations?noteId=…` | 返回 `{highlights, bookmarks, stickyNotes, memo}`。前三项是数组，尚未写私人笔记时 `memo` 为 `null` |
-| GET | `/api/me/annotations/summary` | 返回四类标注的数量和最近的划线、书签 |
+| GET | `/api/me/annotations?noteId=…&revision=…` | 返回 `{revision, highlights, bookmarks, stickyNotes}`，每条标注的 `location` 对应该版本 |
+| GET | `/api/me/annotations/summary` | 返回三类数量和最近的划线、书签，每类至多 10 条，只包含账号页所需字段 |
 | POST | `/api/me/highlights` | 提交锚点、`color` 和 `comment`，返回 `201` 和 `{highlight}` |
 | DELETE | `/api/me/highlights/{id}` | 删除划线 |
 | POST | `/api/me/bookmarks` | 提交锚点、`label` 和 `position`，返回 `201` 和 `{bookmark}` |
-| PATCH | `/api/me/bookmarks/{id}` | 修改书签名称或位置，返回 `{bookmark}` |
+| PATCH | `/api/me/bookmarks/{id}` | 提交 `revision` 及要修改的书签名称、锚点或位置，返回 `{bookmark}` |
 | DELETE | `/api/me/bookmarks/{id}` | 删除书签 |
-| POST | `/api/me/sticky-notes` | 提交 `noteId`、`body`、`color` 和可选锚点，返回 `201` 和 `{stickyNote}` |
+| POST | `/api/me/sticky-notes` | 提交 `noteId`、`revision`、`body`、`color` 和可选锚点，返回 `201` 和 `{stickyNote}` |
 | PATCH | `/api/me/sticky-notes/{id}` | 修改 `body` 或 `color`，返回 `{stickyNote}` |
 | DELETE | `/api/me/sticky-notes/{id}` | 删除便条 |
-| PUT | `/api/me/memo` | 提交 `noteId`、`body`，保存单篇私人笔记并返回 `{memo}` |
 
 划线/便条锚点字段：
 
@@ -76,8 +77,8 @@
 }
 ```
 
-新建标注时，`revision` 来自读者实际看到的正文。前端每次打开文章时重新计算显示位置，
-并保留用户保存的原始锚点。
+`revision` 来自读者实际看到的正文。`location` 用 `{start, end}` 表示渲染正文的归一化
+Unicode 字符区间，起点包含、终点排除。找不到可靠位置时省略该字段，保留原始锚点。
 
 ## 搜索
 

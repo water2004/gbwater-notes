@@ -43,9 +43,10 @@ func TestAnnotationsLifecycleAndIsolation(t *testing.T) {
 	_, otherCookie := registerTestUser(t, server, mailer, "other", "other@example.com", "OtherPass123")
 
 	const noteID = "math/线性代数/矩阵"
+	initialRevision := registerRenderedArticle(t, server, noteID, "<p>对于线性方程组可以作行图像</p>")
 	created := requestJSON(t, server, http.MethodPost, "/api/me/highlights", map[string]any{
 		"noteId": noteID, "quote": "线性方程组", "prefix": "对于", "suffix": "可以",
-		"heading": "矩阵", "color": HighlightGreen, "comment": "重点", "revision": "rev-1",
+		"heading": "矩阵", "color": HighlightGreen, "comment": "重点", "revision": initialRevision,
 	}, ownerCookie)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create highlight: %d %s", created.Code, created.Body.String())
@@ -55,12 +56,12 @@ func TestAnnotationsLifecycleAndIsolation(t *testing.T) {
 	}
 	decodeInto(t, created, &highlightPayload)
 	highlightID := highlightPayload.Highlight.ID
-	if highlightPayload.Highlight.Color != HighlightGreen || highlightPayload.Highlight.Revision != "rev-1" {
+	if highlightPayload.Highlight.Color != HighlightGreen || highlightPayload.Highlight.Revision != initialRevision {
 		t.Fatalf("created highlight: %+v", highlightPayload.Highlight)
 	}
 
 	// 其他用户不能读取或删除这些标注。
-	foreignList := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID, nil, otherCookie)
+	foreignList := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID+"&revision="+initialRevision, nil, otherCookie)
 	var otherState struct {
 		Highlights []Highlight `json:"highlights"`
 	}
@@ -74,7 +75,7 @@ func TestAnnotationsLifecycleAndIsolation(t *testing.T) {
 	}
 
 	bookmark := requestJSON(t, server, http.MethodPost, "/api/me/bookmarks", map[string]any{
-		"noteId": noteID, "label": "看到这里", "quote": "行图像", "position": 0.35, "revision": "rev-2",
+		"noteId": noteID, "label": "看到这里", "quote": "行图像", "position": 0.35, "revision": initialRevision,
 	}, ownerCookie)
 	if bookmark.Code != http.StatusCreated {
 		t.Fatalf("create bookmark: %d %s", bookmark.Code, bookmark.Body.String())
@@ -83,41 +84,41 @@ func TestAnnotationsLifecycleAndIsolation(t *testing.T) {
 		Bookmark Bookmark `json:"bookmark"`
 	}
 	decodeInto(t, bookmark, &bookmarkPayload)
+	invalidMove := requestJSON(t, server, http.MethodPatch, "/api/me/bookmarks/"+bookmarkPayload.Bookmark.ID, map[string]any{
+		"label": "不可写入", "position": 0.9, "revision": "00000000000000000000000000000000",
+	}, ownerCookie)
+	if invalidMove.Code != http.StatusConflict {
+		t.Fatalf("move bookmark to unknown version: %d %s", invalidMove.Code, invalidMove.Body.String())
+	}
+	revised := registerRenderedArticle(t, server, noteID, "<p>对于线性方程组可以作列图像</p>")
 	moved := requestJSON(t, server, http.MethodPatch, "/api/me/bookmarks/"+bookmarkPayload.Bookmark.ID, map[string]any{
-		"quote": "列图像", "position": 0.5, "revision": "rev-3",
+		"quote": "列图像", "position": 0.5, "revision": revised,
 	}, ownerCookie)
 	if moved.Code != http.StatusOK {
 		t.Fatalf("move bookmark: %d %s", moved.Code, moved.Body.String())
 	}
 
-	memo := requestJSON(t, server, http.MethodPut, "/api/me/memo", map[string]string{
-		"noteId": noteID, "body": "复习时先看秩的定义",
-	}, ownerCookie)
-	if memo.Code != http.StatusOK {
-		t.Fatalf("save memo: %d %s", memo.Code, memo.Body.String())
-	}
-
-	state := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID, nil, ownerCookie)
+	state := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID+"&revision="+revised, nil, ownerCookie)
 	var payload struct {
-		Highlights []Highlight `json:"highlights"`
-		Bookmarks  []Bookmark  `json:"bookmarks"`
-		Memo       *Memo       `json:"memo"`
+		Highlights  []Highlight  `json:"highlights"`
+		Bookmarks   []Bookmark   `json:"bookmarks"`
+		StickyNotes []StickyNote `json:"stickyNotes"`
 	}
 	decodeInto(t, state, &payload)
-	if len(payload.Highlights) != 1 || payload.Highlights[0].Quote != "线性方程组" || payload.Highlights[0].Revision != "rev-1" {
+	if len(payload.Highlights) != 1 || payload.Highlights[0].Quote != "线性方程组" || payload.Highlights[0].Revision != initialRevision {
 		t.Fatalf("highlights: %+v", payload.Highlights)
 	}
-	if len(payload.Bookmarks) != 1 || payload.Bookmarks[0].Position != 0.5 || payload.Bookmarks[0].Revision != "rev-3" {
+	if len(payload.Bookmarks) != 1 || payload.Bookmarks[0].Position != 0.5 || payload.Bookmarks[0].Revision != revised || payload.Bookmarks[0].Label != "看到这里" {
 		t.Fatalf("bookmarks: %+v", payload.Bookmarks)
 	}
-	if payload.Memo == nil || payload.Memo.Body == "" {
-		t.Fatalf("memo: %+v", payload.Memo)
+	if payload.StickyNotes == nil || len(payload.StickyNotes) != 0 {
+		t.Fatalf("expected an empty sticky note list: %+v", payload.StickyNotes)
 	}
 
 	summary := requestJSON(t, server, http.MethodGet, "/api/me/annotations/summary", nil, ownerCookie)
 	var summaryPayload AnnotationSummary
 	decodeInto(t, summary, &summaryPayload)
-	if summaryPayload.HighlightCount != 1 || summaryPayload.BookmarkCount != 1 || summaryPayload.MemoCount != 1 {
+	if summaryPayload.HighlightCount != 1 || summaryPayload.BookmarkCount != 1 || summaryPayload.StickyCount != 0 {
 		t.Fatalf("summary: %+v", summaryPayload)
 	}
 	if len(summaryPayload.RecentHighlights) != 1 || summaryPayload.RecentHighlights[0].NoteTitle == "" {
@@ -184,10 +185,11 @@ func TestStickyNotesAndUserSettings(t *testing.T) {
 	_, otherCookie := registerTestUser(t, server, mailer, "other", "other@example.com", "OtherPass123")
 
 	const noteID = "math/线性代数/矩阵"
+	revision := registerRenderedArticle(t, server, noteID, "<p>对于线性方程组可以逐个求解</p>")
 	created := requestJSON(t, server, http.MethodPost, "/api/me/sticky-notes", map[string]any{
 		"noteId": noteID, "body": "这里要复习", "color": HighlightYellow,
 		"quote": "线性方程组", "prefix": "对于", "suffix": "可以",
-		"heading": "矩阵", "revision": "rev-1",
+		"heading": "矩阵", "revision": revision,
 	}, ownerCookie)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create sticky: %d %s", created.Code, created.Body.String())
@@ -201,7 +203,7 @@ func TestStickyNotesAndUserSettings(t *testing.T) {
 		t.Fatalf("sticky anchor missing: %+v", stickyPayload.StickyNote)
 	}
 
-	state := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID, nil, ownerCookie)
+	state := requestJSON(t, server, http.MethodGet, "/api/me/annotations?noteId="+noteID+"&revision="+revision, nil, ownerCookie)
 	var annotations struct {
 		StickyNotes []StickyNote `json:"stickyNotes"`
 	}

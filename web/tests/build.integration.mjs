@@ -37,8 +37,8 @@ const newSubject = makeNote('astronomy', 'stars', 'new-star-note', '新的天文
 const revision = '1234567890abcdef'.repeat(2)
 const catalog = join(publicDir, 'catalog.json')
 const body = (note) => join(publicDir, 'note-content', note.slug + '.json')
-const writeArticle = (note, html, sourceRevision = revision) =>
-  writeFileSync(body(note), JSON.stringify({ html, revision: sourceRevision }))
+const writeArticle = (note, html, articleRevision = revision) =>
+  writeFileSync(body(note), JSON.stringify({ html, revision: articleRevision }))
 for (const note of [first, sibling, unrelated]) {
   mkdirSync(dirname(body(note)), {recursive:true})
   writeArticle(note, `<p>${note.title}的正文</p>`)
@@ -65,7 +65,7 @@ try {
   const initial = fileTimes()
   assert.match(readFileSync(join(dist, 'notes/first/index.html'),'utf8'), /lang="zh-CN"/)
   assert.match(readFileSync(join(dist, 'notes/first/index.html'),'utf8'), /\/regression\/library\/math/)
-  assert.match(readFileSync(join(dist, 'notes/first/index.html'),'utf8'), new RegExp(`data-source-revision="${revision}"`))
+  assert.match(readFileSync(join(dist, 'notes/first/index.html'),'utf8'), new RegExp(`data-annotation-revision="${revision}"`))
   assert.deepEqual(readFileSync(join(dist, 'note-content/first.json')), readFileSync(body(first)))
   assert.deepEqual(readFileSync(join(dist, 'catalog.json')), readFileSync(catalog))
   assert.deepEqual(readFileSync(join(dist, 'content-assets/test.svg')), readFileSync(join(imageDir, 'test.svg')))

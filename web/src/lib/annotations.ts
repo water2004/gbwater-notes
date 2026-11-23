@@ -12,6 +12,7 @@ export interface Highlight {
   color: HighlightColor
   comment: string
   revision: string
+  location?: TextLocation
   createdAt: string
   updatedAt: string
 }
@@ -26,6 +27,7 @@ export interface Bookmark {
   heading: string
   position: number
   revision: string
+  location?: TextLocation
   createdAt: string
   updatedAt: string
 }
@@ -40,20 +42,15 @@ export interface StickyNote {
   suffix: string
   heading: string
   revision: string
+  location?: TextLocation
   createdAt: string
   updatedAt: string
 }
 
-export interface Memo {
-  noteId: string
-  body: string
-  updatedAt: string
-}
-
 export interface NoteAnnotations {
+  revision: string
   highlights: Highlight[]
   bookmarks: Bookmark[]
-  memo: Memo | null
   stickyNotes: StickyNote[]
 }
 
@@ -64,8 +61,10 @@ export interface AnchorInput {
   heading: string
 }
 
-export async function loadAnnotations(noteId: string, signal: AbortSignal): Promise<NoteAnnotations> {
-  return api<NoteAnnotations>(`/me/annotations?noteId=${encodeURIComponent(noteId)}`, { signal })
+export async function loadAnnotations(noteId: string, revision: string, signal: AbortSignal): Promise<NoteAnnotations> {
+  const page = await api<NoteAnnotations>(`/me/annotations?${new URLSearchParams({ noteId, revision })}`, { signal })
+  if (page.revision !== revision) throw new Error('标注版本与当前正文不一致')
+  return page
 }
 
 export async function createHighlight(noteId: string, anchor: AnchorInput, color: HighlightColor, comment: string, revision: string) {
@@ -88,7 +87,7 @@ export async function createBookmark(noteId: string, anchor: AnchorInput, label:
   return data.bookmark
 }
 
-export async function updateBookmark(id: string, patch: Partial<Pick<Bookmark, 'label' | 'revision' | 'quote' | 'prefix' | 'suffix' | 'heading' | 'position'>>) {
+export async function updateBookmark(id: string, patch: Pick<Bookmark, 'revision'> & Partial<Pick<Bookmark, 'label' | 'quote' | 'prefix' | 'suffix' | 'heading' | 'position'>>) {
   const data = await api<{ bookmark: Bookmark }>(`/me/bookmarks/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     json: patch,
@@ -100,21 +99,15 @@ export async function deleteBookmark(id: string) {
   await api(`/me/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export async function saveMemo(noteId: string, body: string) {
-  const data = await api<{ memo: Memo }>('/me/memo', { method: 'PUT', json: { noteId, body } })
-  return data.memo
-}
-
 export interface AnnotationSummary {
   highlightCount: number
   bookmarkCount: number
-  memoCount: number
   stickyCount: number
-  recentHighlights: Array<Highlight & { noteTitle: string; course: string }>
-  recentBookmarks: Array<Bookmark & { noteTitle: string; course: string }>
+  recentHighlights: Array<Pick<Highlight, 'id' | 'noteId' | 'quote' | 'color'> & { noteTitle: string }>
+  recentBookmarks: Array<Pick<Bookmark, 'id' | 'noteId' | 'label' | 'heading'> & { noteTitle: string }>
 }
 
-export async function createStickyNote(noteId: string, body: string, color: HighlightColor, anchor?: AnchorInput, revision = '') {
+export async function createStickyNote(noteId: string, body: string, color: HighlightColor, revision: string, anchor?: AnchorInput) {
   const data = await api<{ stickyNote: StickyNote }>('/me/sticky-notes', {
     method: 'POST',
     json: { noteId, body, color, ...(anchor || {}), revision },
@@ -153,7 +146,6 @@ export interface TextIndex {
   text: string
   nodes: TextNode[]
   images: InlineImage[]
-  normalized?: { text: string; offsets: number[] }
 }
 
 export interface TextLocation { start: number; end: number }
@@ -162,7 +154,11 @@ export interface TextLocation { start: number; end: number }
 // 行内公式是 <img>，不产生文字，但记录它所在的文本偏移，供划线背景覆盖与定位。
 // 锚点（quote + 前后文）都在这条文本上计算，因此与具体标签结构无关。
 export function indexArticle(article: HTMLElement): TextIndex {
-  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)
+  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+    acceptNode: node => node instanceof Element && node.matches('script, style, template, noscript, svg, [hidden]')
+      ? NodeFilter.FILTER_REJECT
+      : NodeFilter.FILTER_ACCEPT,
+  })
   const nodes: TextNode[] = []
   const images: InlineImage[] = []
   let text = ''
@@ -193,52 +189,22 @@ function nodeAt(index: TextIndex, offset: number, end = false) {
   return last ? { node: last.node, offset: last.node.nodeValue?.length || 0 } : null
 }
 
-function scoreContext(before: string, after: string, prefix: string, suffix: string) {
-  const left = !prefix ? 0 : before.endsWith(prefix) ? 2 : before.endsWith(prefix.slice(-12)) ? 1 : 0
-  const right = !suffix ? 0 : after.startsWith(suffix) ? 2 : after.startsWith(suffix.slice(0, 12)) ? 1 : 0
-  return left + right
-}
-
-function matchQuote(text: string, quote: string, prefix: string, suffix: string): TextLocation | null {
-  let best: TextLocation | null = null
-  let bestScore = -1
-  let tied = false
-  for (let start = text.indexOf(quote); start >= 0; start = text.indexOf(quote, start + 1)) {
-    const end = start + quote.length
-    const before = text.slice(Math.max(0, start - prefix.length), start)
-    const after = text.slice(end, end + suffix.length)
-    const score = scoreContext(before, after, prefix, suffix)
-    if (score > bestScore) {
-      best = { start, end }
-      bestScore = score
-      tied = false
-    } else if (score === bestScore) {
-      tied = true
-    }
+// Convert the server's normalized Unicode offsets into DOM UTF-16 offsets.
+// Like Go's article index, one projection skips whitespace uniformly.
+export function mapArticleOffsets(text: string) {
+  const characters: TextLocation[] = []
+  let start = 0
+  for (const character of text) {
+    const end = start + character.length
+    if (!/[\p{White_Space}\uFEFF]/u.test(character)) characters.push({ start, end })
+    start = end
   }
-  // 短引文在前后文都对不上时，可能只剩下别处的同一个词。
-  if (tied || (bestScore === 0 && quote.length < 12 && (prefix.trim() || suffix.trim()))) return null
-  return best
-}
-
-function normalizeWhitespace(text: string) {
-  return text.replace(/\s+/g, ' ')
-}
-
-// 用原文和前后文定位。HTML 格式化可能引入换行与缩进，第二次匹配
-// 忽略连续空白，再把结果映射回原有的 DOM 文本偏移。
-export function locate(index: TextIndex, quote: string, prefix = '', suffix = ''): TextLocation | null {
-  if (!quote.trim()) return null
-  const exact = matchQuote(index.text, quote, prefix, suffix)
-  if (exact) return exact
-  if (!index.normalized) {
-    const offsets: number[] = []
-    for (const match of index.text.matchAll(/\s+|\S/g)) offsets.push(match.index)
-    index.normalized = { text: normalizeWhitespace(index.text), offsets }
+  return (location?: TextLocation): TextLocation | undefined => {
+    if (!location || location.start >= location.end) return
+    const first = characters[location.start]
+    const last = characters[location.end - 1]
+    if (first && last) return { start: first.start, end: last.end }
   }
-  const { text, offsets } = index.normalized
-  const match = matchQuote(text, normalizeWhitespace(quote), normalizeWhitespace(prefix), normalizeWhitespace(suffix))
-  return match && { start: offsets[match.start], end: offsets[match.end - 1] + 1 }
 }
 
 export function anchorForTextRange(index: TextIndex, start: number, end: number, heading: string): AnchorInput | null {

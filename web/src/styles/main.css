@@ -672,9 +672,8 @@ img[data-highlight-id] { cursor: pointer; }
 .bookmark-main span { display: grid; gap: 2px; }
 .bookmark-main strong { font-size: 13px; }
 .bookmark-main small { overflow: hidden; color: var(--text-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.annotation-memo textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); color: var(--text); font-size: 13px; line-height: 1.8; resize: vertical; }
 .annotation-toast { position: fixed; left: 50%; bottom: 26px; z-index: 100; transform: translateX(-50%); margin: 0; padding: 10px 18px; border-radius: 22px; background: var(--accent-strong); color: #f7faf7; font-size: 12px; box-shadow: var(--shadow); }
-.annotation-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.annotation-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0 18px; }
 .annotation-stats > div { padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-align: center; }
 .annotation-stats strong { display: block; font-family: var(--serif); font-size: 22px; }
 .annotation-stats small { color: var(--text-soft); font-size: 11px; }

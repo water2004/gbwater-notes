@@ -23,13 +23,14 @@ type BuildStatus struct {
 }
 
 type BuildManager struct {
-	root     string
-	dataDir  string
-	basePath string
-	timeout  time.Duration
-	mu       sync.Mutex
-	status   BuildStatus
-	onFinish func(BuildStatus)
+	root               string
+	dataDir            string
+	basePath           string
+	timeout            time.Duration
+	mu                 sync.Mutex
+	status             BuildStatus
+	onFinish           func(BuildStatus)
+	preparePublication func(context.Context) error
 }
 
 var errBuildRunning = errors.New("已有一次构建正在运行")
@@ -43,11 +44,14 @@ type RenderJob struct {
 	BasePath string
 }
 
-func NewBuildManager(root, dataDir string, timeout time.Duration, basePath string) *BuildManager {
+func NewBuildManager(root, dataDir string, timeout time.Duration, basePath string, preparePublication func(context.Context) error) *BuildManager {
 	if basePath == "" {
 		basePath = "/"
 	}
-	return &BuildManager{root: root, dataDir: dataDir, basePath: basePath, timeout: timeout, status: BuildStatus{State: "idle"}}
+	return &BuildManager{
+		root: root, dataDir: dataDir, basePath: basePath, timeout: timeout,
+		status: BuildStatus{State: "idle"}, preparePublication: preparePublication,
+	}
 }
 
 func (b *BuildManager) Status() BuildStatus {
@@ -94,34 +98,41 @@ func (w buildWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func (b *BuildManager) run(ctx context.Context, cancel context.CancelFunc, onFinish func(BuildStatus)) {
-	defer cancel()
-	var runErr error
+func (b *BuildManager) build(ctx context.Context) error {
 	executable, err := os.Executable()
 	if err != nil {
-		runErr = err
-	} else {
-		job, _ := json.Marshal(RenderJob{Root: b.root, BasePath: b.basePath})
-		render := exec.CommandContext(ctx, executable, RenderWorkerArg)
-		render.Dir = b.root
-		render.Stdin = bytes.NewReader(job)
-		frontend := exec.CommandContext(ctx, "node", filepath.Join("scripts", "build.mjs"))
-		frontend.Dir = filepath.Join(b.root, "web")
-		frontend.Env = append(os.Environ(), "GBWATER_BASE_PATH="+b.basePath)
-		for _, command := range []*exec.Cmd{render, frontend} {
-			b.appendLog(fmt.Sprintf("\n$ %v\n", command.Args))
-			writer := buildWriter{manager: b}
-			command.Stdout = writer
-			command.Stderr = writer
-			command.WaitDelay = 5 * time.Second
-			if err := command.Run(); err != nil {
-				runErr = err
-				if ctx.Err() != nil {
-					runErr = fmt.Errorf("构建超时: %w", ctx.Err())
-				}
-				break
-			}
-		}
+		return err
+	}
+	run := func(command *exec.Cmd) error {
+		b.appendLog(fmt.Sprintf("\n$ %v\n", command.Args))
+		writer := buildWriter{manager: b}
+		command.Stdout = writer
+		command.Stderr = writer
+		command.WaitDelay = 5 * time.Second
+		return command.Run()
+	}
+	job, _ := json.Marshal(RenderJob{Root: b.root, BasePath: b.basePath})
+	render := exec.CommandContext(ctx, executable, RenderWorkerArg)
+	render.Dir = b.root
+	render.Stdin = bytes.NewReader(job)
+	if err := run(render); err != nil {
+		return err
+	}
+	if err := b.preparePublication(ctx); err != nil {
+		b.appendLog(fmt.Sprintf("\n[annotations] %v\n", err))
+		return err
+	}
+	frontend := exec.CommandContext(ctx, "node", filepath.Join("scripts", "build.mjs"))
+	frontend.Dir = filepath.Join(b.root, "web")
+	frontend.Env = append(os.Environ(), "GBWATER_BASE_PATH="+b.basePath)
+	return run(frontend)
+}
+
+func (b *BuildManager) run(ctx context.Context, cancel context.CancelFunc, onFinish func(BuildStatus)) {
+	defer cancel()
+	runErr := b.build(ctx)
+	if runErr != nil && ctx.Err() != nil {
+		runErr = fmt.Errorf("构建超时: %w", ctx.Err())
 	}
 	b.mu.Lock()
 	status := b.status

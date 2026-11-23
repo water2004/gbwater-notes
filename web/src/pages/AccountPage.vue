@@ -139,7 +139,7 @@ async function signOut() {
         <div class="annotation-stats">
           <div><strong>{{ annotationSummary?.highlightCount ?? 0 }}</strong><small>划线</small></div>
           <div><strong>{{ annotationSummary?.bookmarkCount ?? 0 }}</strong><small>书签</small></div>
-          <div><strong>{{ annotationSummary?.memoCount ?? 0 }}</strong><small>笔记</small></div>`n          <div><strong>{{ annotationSummary?.stickyCount ?? 0 }}</strong><small>便条</small></div>
+          <div><strong>{{ annotationSummary?.stickyCount ?? 0 }}</strong><small>便条</small></div>
         </div>
         <div v-if="annotationSummary?.recentHighlights.length" class="annotation-recent">
           <p class="sidebar-label">最近划线</p>

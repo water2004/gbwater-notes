@@ -6,6 +6,7 @@ export interface RenderedArticle {
 }
 
 let initialArticle: RenderedArticle | undefined
+const revisionPattern = /^[0-9a-f]{32}$/
 
 // 同一标识供 Vite SSG 构建钩子与 Vue 的预渲染页面使用。
 export const prerenderedArticle = Symbol.for('gbwater.prerenderedArticle')
@@ -15,13 +16,20 @@ export async function fetchArticle(slug: string, signal: AbortSignal): Promise<R
   if (!response.ok || !response.headers.get('Content-Type')?.includes('application/json')) {
     throw new Error(`无法加载笔记正文（${response.status}）`)
   }
-  return response.json()
+  const article = await response.json() as Partial<RenderedArticle> | null
+  if (typeof article?.html !== 'string' || typeof article.revision !== 'string' || !revisionPattern.test(article.revision)) {
+    throw new Error('笔记正文版本无效')
+  }
+  return { html: article.html, revision: article.revision }
 }
 
 export function captureInitialArticle() {
   if (typeof document === 'undefined') return
   const element = document.querySelector<HTMLElement>('.note-article')
-  if (element) initialArticle = { html: element.innerHTML, revision: element.dataset.sourceRevision || '' }
+  const revision = element?.dataset.annotationRevision
+  if (element && revision && revisionPattern.test(revision)) {
+    initialArticle = { html: element.innerHTML, revision }
+  }
 }
 
 // takeInitialArticle 取一次即清空，避免站内切换时误用上一篇的正文。

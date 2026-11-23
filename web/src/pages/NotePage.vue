@@ -40,7 +40,7 @@ function parameter(value: unknown) {
 
 const note = computed(() => getNote(parameter(route.params.slug)))
 const id = computed(() => note.value?.id || '')
-const annotations = useNoteAnnotations(article, note)
+const annotations = useNoteAnnotations(article, note, computed(() => body.value?.revision))
 const selection = annotations.selection
 const selectionColor = annotations.selectionColor
 const { locations, stickyAnchors, floatingStickyNotes } = annotations
@@ -194,7 +194,7 @@ onMounted(() => {
   window.addEventListener('pointerdown', closeReadingOnOutside, true)
   window.addEventListener('keydown', keyboard)
   updateProgress()
-  watch(article, element => {
+  watch([article, () => body.value?.revision], ([element]) => {
     observeHeadings()
     updateProgress()
     if (element) void annotations.refresh()
@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
 
           <p v-if="loading" class="search-status"><span class="loading-spinner" />正在展开笔记…</p>
           <div v-else-if="loadError" class="error-message">{{ loadError }}</div>
-          <article v-else ref="article" class="note-article" :data-source-revision="body?.revision || undefined" v-html="body?.html" @click="handleArticleClick" @mouseup="annotations.onMouseUp" @contextmenu.prevent="openContextMenu" />
+          <article v-else ref="article" class="note-article" :data-annotation-revision="body?.revision" v-html="body?.html" @click="handleArticleClick" @mouseup="annotations.onMouseUp" @contextmenu.prevent="openContextMenu" />
 
           <section v-if="!loading && !loadError" class="note-finish">
             <div><strong>{{ completed.has(note.id) ? '这篇笔记已完成' : '读完这篇笔记了吗？' }}</strong><small>{{ session.user ? '已读状态会同步到你的账号。' : '已读状态保存在本机，登录后可跨设备同步。' }}</small></div>
@@ -334,7 +334,6 @@ onBeforeUnmount(() => {
             <button role="tab" :aria-selected="annotations.state.tab === 'highlights'" :class="{ active: annotations.state.tab === 'highlights' }" @click="annotations.state.tab = 'highlights'">划线 {{ annotations.state.data?.highlights.length || 0 }}</button>
             <button role="tab" :aria-selected="annotations.state.tab === 'bookmarks'" :class="{ active: annotations.state.tab === 'bookmarks' }" @click="annotations.state.tab = 'bookmarks'">书签 {{ annotations.state.data?.bookmarks.length || 0 }}</button>
             <button role="tab" :aria-selected="annotations.state.tab === 'sticky'" :class="{ active: annotations.state.tab === 'sticky' }" @click="annotations.state.tab = 'sticky'">便条 {{ annotations.state.data?.stickyNotes.length || 0 }}</button>
-            <button role="tab" :aria-selected="annotations.state.tab === 'memo'" :class="{ active: annotations.state.tab === 'memo' }" @click="annotations.state.tab = 'memo'">笔记</button>
           </nav>
 
           <div v-if="annotations.state.loading" class="drawer-empty"><span class="loading-spinner" />正在读取标注…</div>
@@ -380,11 +379,6 @@ onBeforeUnmount(() => {
                 <button class="text-link danger" @click="annotations.removeSticky(item)">删除</button>
               </footer>
             </article>
-          </div>
-
-          <div v-else class="annotation-memo">
-            <label class="form-field"><span>私人笔记（单篇长文，仅自己可见）</span><textarea v-model="annotations.state.memoDraft" rows="10" placeholder="记下自己的推导、疑问或复习提示…" @input="annotations.scheduleTextSave()" /></label>
-            <p class="form-hint">{{ annotations.state.memoStatus || '输入后自动保存' }}</p>
           </div>
         </aside>
       </div>

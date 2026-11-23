@@ -8,7 +8,7 @@
 
 部署方式沿用 Element Skin 的结构。Compose 运行 Go API、PostgreSQL 和 Meilisearch，宿主机 nginx 读取 `./frontend`。新版镜像在启动时按部署路径安装登录和管理后台。公开页在后台点击「构建并发布」后增量更新。
 
-当前已发布镜像为 `ghcr.io/water2004/gbwater-notes:1.0.0`。 [1.0.0 部署说明](https://github.com/water2004/gbwater-notes/blob/v1.0.0/docs/deployment.md) · [新版部署配置](docs/deployment.md)
+Linux amd64 镜像为 `ghcr.io/water2004/gbwater-notes:1.0.1`。 [部署与升级说明](docs/deployment.md) · [GitHub Release](https://github.com/water2004/gbwater-notes/releases/tag/v1.0.1)
 
 ## 本地开发
 

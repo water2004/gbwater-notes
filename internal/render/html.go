@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gbwater/internal/anchor"
 )
 
 var (
@@ -71,15 +73,10 @@ func cachedArticlePath(generatedDir, id string) string {
 	return filepath.Join(generatedDir, "notes-html", id+".html")
 }
 
-type readerArticle struct {
-	HTML     string `json:"html"`
-	Revision string `json:"revision"`
-}
-
 // publishReaderArticles exports the same Folia-produced body for Vite and the static site.
 func publishReaderArticles(publicDir, generatedDir string, documents []document) error {
 	dir := filepath.Join(publicDir, "note-content")
-	published := make(map[string]readerArticle)
+	published := make(map[string]anchor.Article)
 	for _, doc := range documents {
 		if doc.note.Draft {
 			continue
@@ -92,7 +89,11 @@ func publishReaderArticles(publicDir, generatedDir string, documents []document)
 		if err != nil {
 			return fmt.Errorf("读取正文 %s: %w", doc.note.ID, err)
 		}
-		published[name] = readerArticle{HTML: string(fragment), Revision: doc.note.Revision}
+		text, err := anchor.RenderedText(string(fragment))
+		if err != nil {
+			return fmt.Errorf("读取正文文本 %s: %w", doc.note.ID, err)
+		}
+		published[name] = anchor.Article{HTML: string(fragment), Revision: anchor.Revision(text)}
 	}
 	for name, payload := range published {
 		if err := writeJSON(filepath.Join(dir, name), payload); err != nil {

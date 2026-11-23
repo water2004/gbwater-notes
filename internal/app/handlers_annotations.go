@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ const (
 	maxQuoteRunes   = 500
 	maxContextRunes = 80
 	maxCommentRunes = 4000
-	maxMemoRunes    = 20000
 	maxHeadingRunes = 200
 	maxLabelRunes   = 120
 	maxStickyRunes  = 4000
@@ -51,29 +51,23 @@ func (s *Server) listAnnotations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_note", "笔记 id 无效")
 		return
 	}
-	highlights, err := s.annotations.Highlights(r.Context(), user.ID, noteID)
+	page, err := s.annotations.Page(r.Context(), user.ID, noteID, r.URL.Query().Get("revision"))
 	if err != nil {
-		fail(w, err)
+		failAnnotation(w, err)
 		return
 	}
-	bookmarks, err := s.annotations.Bookmarks(r.Context(), user.ID, noteID)
-	if err != nil {
+	writeJSON(w, http.StatusOK, page)
+}
+
+func failAnnotation(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errInvalidArticleRevision):
+		writeError(w, http.StatusBadRequest, "invalid_revision", err.Error())
+	case errors.Is(err, errUnknownArticleRevision):
+		writeError(w, http.StatusConflict, "revision_unavailable", err.Error())
+	default:
 		fail(w, err)
-		return
 	}
-	memo, err := s.annotations.Memo(r.Context(), user.ID, noteID)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	stickyNotes, err := s.annotations.StickyNotes(r.Context(), user.ID, noteID)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"highlights": highlights, "bookmarks": bookmarks, "memo": memo, "stickyNotes": stickyNotes,
-	})
 }
 
 func (s *Server) createHighlight(w http.ResponseWriter, r *http.Request) {
@@ -120,10 +114,10 @@ func (s *Server) createHighlight(w http.ResponseWriter, r *http.Request) {
 		ID: id, NoteID: input.NoteID, Quote: quote,
 		Prefix: tailRunes(input.Prefix, maxContextRunes), Suffix: truncateRunes(input.Suffix, maxContextRunes),
 		Heading: truncateRunes(input.Heading, maxHeadingRunes), Color: color,
-		Comment: truncateRunes(input.Comment, maxCommentRunes), Revision: truncateRunes(input.Revision, 64),
+		Comment: truncateRunes(input.Comment, maxCommentRunes), Revision: input.Revision,
 	})
 	if err != nil {
-		fail(w, err)
+		failAnnotation(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"highlight": item})
@@ -181,10 +175,10 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) {
 		Quote:  truncateRunes(input.Quote, maxQuoteRunes),
 		Prefix: tailRunes(input.Prefix, maxContextRunes), Suffix: truncateRunes(input.Suffix, maxContextRunes),
 		Heading: truncateRunes(input.Heading, maxHeadingRunes), Position: position,
-		Revision: truncateRunes(input.Revision, 64),
+		Revision: input.Revision,
 	})
 	if err != nil {
-		fail(w, err)
+		failAnnotation(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"bookmark": item})
@@ -196,7 +190,7 @@ func (s *Server) updateBookmark(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		Label    *string  `json:"label"`
-		Revision *string  `json:"revision"`
+		Revision string   `json:"revision"`
 		Quote    *string  `json:"quote"`
 		Prefix   *string  `json:"prefix"`
 		Suffix   *string  `json:"suffix"`
@@ -207,14 +201,10 @@ func (s *Server) updateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "请求格式无效")
 		return
 	}
-	patch := BookmarkPatch{}
+	patch := BookmarkPatch{Revision: input.Revision}
 	if input.Label != nil {
 		value := truncateRunes(*input.Label, maxLabelRunes)
 		patch.Label = &value
-	}
-	if input.Revision != nil {
-		value := truncateRunes(*input.Revision, 64)
-		patch.Revision = &value
 	}
 	if input.Quote != nil {
 		value := truncateRunes(*input.Quote, maxQuoteRunes)
@@ -244,7 +234,7 @@ func (s *Server) updateBookmark(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := s.annotations.UpdateBookmark(r.Context(), s.currentUser(r).ID, r.PathValue("id"), patch)
 	if err != nil {
-		fail(w, err)
+		failAnnotation(w, err)
 		return
 	}
 	if item == nil {
@@ -265,34 +255,6 @@ func (s *Server) deleteBookmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) saveMemo(w http.ResponseWriter, r *http.Request) {
-	if !s.throttleUser(w, r, "annotations", annotationLimit, time.Minute) {
-		return
-	}
-	var input struct {
-		NoteID string `json:"noteId"`
-		Body   string `json:"body"`
-	}
-	if err := decodeJSON(w, r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "请求格式无效")
-		return
-	}
-	if !validNoteID(input.NoteID) {
-		writeError(w, http.StatusBadRequest, "invalid_note", "笔记 id 无效")
-		return
-	}
-	if utf8.RuneCountInString(input.Body) > maxMemoRunes {
-		writeError(w, http.StatusBadRequest, "memo_too_long", "便条内容过长")
-		return
-	}
-	item, err := s.annotations.SaveMemo(r.Context(), s.currentUser(r).ID, input.NoteID, input.Body)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"memo": item})
 }
 
 func (s *Server) annotationSummary(w http.ResponseWriter, r *http.Request) {
@@ -349,10 +311,10 @@ func (s *Server) createStickyNote(w http.ResponseWriter, r *http.Request) {
 		Prefix:   tailRunes(input.Prefix, maxContextRunes),
 		Suffix:   truncateRunes(input.Suffix, maxContextRunes),
 		Heading:  truncateRunes(input.Heading, maxHeadingRunes),
-		Revision: truncateRunes(input.Revision, 64),
+		Revision: input.Revision,
 	})
 	if err != nil {
-		fail(w, err)
+		failAnnotation(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"stickyNote": item})

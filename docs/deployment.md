@@ -4,13 +4,15 @@
 
 ## 首次启动
 
-在 Linux 主机上安装 Docker Engine、Compose 插件和 nginx。以下步骤使用包含启动时路径配置的镜像和 [Compose 配置](../docker-compose.yml)。使用已发布的 `1.0.0` 镜像时，按该版本的说明导出初始前端，并在 nginx 保留 `/api/`。 [1.0.0 部署说明](https://github.com/water2004/gbwater-notes/blob/v1.0.0/docs/deployment.md)
+在 Linux amd64 主机上安装 Docker Engine、Compose 插件和 nginx。以下命令把 v1.0.1 的部署文件取到当前目录下的 `gbwater-notes/`。Compose 直接拉取已构建的版本镜像。
 
 ```bash
+git clone --depth 1 --branch v1.0.1 https://github.com/water2004/gbwater-notes.git
+cd gbwater-notes
 cp deploy/compose.env.example .env
 ```
 
-在 `.env` 填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。
+在 `.env` 填写真实的 HTTPS 站点地址、管理员邮箱及独立密码。数据库密码和搜索密钥可各执行一次 `openssl rand -hex 24`。首次启动时 Go 服务按 `GBWATER_ADMIN_*` 自动创建管理员。已有管理员时，继续使用数据库里保存的账号和密码。
 
 ```bash
 mkdir -p data/db data/meilisearch
@@ -26,9 +28,16 @@ docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$(do
 docker compose up -d --wait
 ```
 
-API 容器启动时会把镜像里的登录、注册、找回密码和后台页面安装到 `frontend/`，并按 `.env` 替换路径。同一配置重启时会跳过内容相同的文件。首次部署从 `/mypdf/admin/` 进入后台，再点击「构建并发布」生成公开首页和笔记。运行容器的 UID/GID 是 `10001`，导入的内容目录和图床也需要该用户可读写。
+API 容器启动时会把镜像里的登录、注册、找回密码和后台页面安装到 `frontend/`，并按 `.env` 替换路径。同一配置重启时会跳过内容相同的文件。运行容器的 UID/GID 是 `10001`，导入的内容目录和图床也需要该用户可读写。
 
-使用 [nginx 示例](../deploy/nginx.conf.example)，填写域名、证书、实际部署目录和 API 端口。应用接收生产环境的 Secure Cookie，从 HTTPS 站点登录后台。
+将 [nginx 示例](../deploy/nginx.conf.example) 加到宿主机 nginx 配置中，换成实际域名、证书、`frontend/` 绝对路径和 API 端口。默认外部 API 前缀为 `/mypdf/api/`，示例中的 `proxy_pass` 末尾保留 `/api/`，由 nginx 将外部前缀改写为 Go 内部的路由。笔记图片和构建后的公式、图表由 nginx 直接读取。
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+curl -fsS https://notes.example.com/mypdf/api/health
+```
+
+健康检查通过后，从 HTTPS 的 `/mypdf/admin/` 进入后台，再点击「构建并发布」生成公开首页和笔记。
 
 ## 修改和发布内容
 
@@ -59,7 +68,7 @@ API 容器启动时会把镜像里的登录、注册、找回密码和后台页�
 
 ## 数据和升级
 
-| 路径或卷 | 内容 |
+| 路径 | 内容 |
 | --- | --- |
 | `content/` | Markdown 原文 |
 | `data/gbwater/content-assets/` | 图床原图 |
@@ -69,8 +78,33 @@ API 容器启动时会把镜像里的登录、注册、找回密码和后台页�
 | `data/db/` | PostgreSQL 数据，包含账号、会话、划线便签、站点设置和 Markdown 修订 |
 | `data/meilisearch/` | 可重建的搜索索引 |
 
-从最初使用命名卷的 `v1.0.0` Compose 迁移时，先从原 PostgreSQL 导出并验证备份，再恢复到 `data/db/` 对应的数据库。切换前保留原命名卷。搜索索引可在后台重新构建。
+### 升级到 v1.0.1
 
-升级前备份 PostgreSQL 和内容、图床、回收站。更新 `GBWATER_IMAGE` 后执行 `docker compose pull && docker compose up -d --wait`，再从后台发布一次公开页。
+在原部署目录操作。备份 PostgreSQL、`.env`、内容、图床和回收站，保留已有的 `content/`、`data/gbwater/`、`data/render/` 和 `frontend/`。如果原数据库已经挂载到 `./data/db/`，可继续使用。使用了 v1.0.0 原始命名卷时，先执行下方迁移步骤。
+
+1. 用 [v1.0.1 Compose 配置](../docker-compose.yml) 更新现有配置，保留部署时自定义的目录和端口。在原 `.env` 将 `GBWATER_IMAGE` 改为 `ghcr.io/water2004/gbwater-notes:1.0.1`，设置 `GBWATER_API_BASE_PATH` 或留空使用默认值。
+2. 执行 `docker compose pull`、`docker compose up -d --wait db search`。按首次启动步骤重新查网关并更新 `.env`，再执行 `docker compose up -d --wait`。启动后的登录和后台页面会使用新路径。
+3. 同步更新 nginx 的 API location 和 `admin-assets/` 配置，检查配置并重载。通过 HTTPS 登录后台，点击「构建并发布」。这一步会更新公开页的 API 路径，并计算已有划线、书签和便签在当前正文中的位置。完成后刷新旧阅读页。
+
+### 从 v1.0.0 的 PostgreSQL 命名卷迁移
+
+用旧 Compose 配置停掉 API。保持旧数据库运行，导出并检查备份。
+
+```bash
+docker compose stop api
+docker compose exec -T db pg_dump -U gbwater -d gbwater -Fc > gbwater-v1.0.0.dump
+docker compose exec -T db pg_restore --list < gbwater-v1.0.0.dump
+```
+
+确认导出成功后，用原配置执行 `docker compose down`，保留原命名卷。然后在原部署目录换成 v1.0.1 配置、按首次启动的命令创建挂载目录，并将备份恢复到新的空数据库：
+
+```bash
+docker compose up -d --wait db
+docker compose exec -T db pg_restore -U gbwater -d gbwater --single-transaction --exit-on-error < gbwater-v1.0.0.dump
+```
+
+恢复成功后继续升级步骤。搜索索引会在后台发布时重建。升级验证通过前保留备份和原数据卷。
+
+## 排查
 
 排查时可用 `docker compose ps`、`docker compose logs api`、`curl http://127.0.0.1:8080/api/health` 和 `nginx -t`。Folia 与前端构建日志可在后台「发布」查看。

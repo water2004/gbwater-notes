@@ -4,8 +4,8 @@ import type { NoteMeta } from '@/types/content'
 import { session } from '@/lib/session'
 import {
   anchorForTextRange, applyBookmarks, applyHighlights, applyMarkdownHighlights, clearHighlights, createBookmark, createHighlight, createStickyNote, deleteBookmark,
-  deleteHighlight, deleteStickyNote, elementAtOffset, headingText, indexArticle, loadAnnotations, locate,
-  saveMemo, selectionAnchor, textRange, updateBookmark, updateStickyNote,
+  deleteHighlight, deleteStickyNote, elementAtOffset, headingText, indexArticle, loadAnnotations, mapArticleOffsets,
+  selectionAnchor, textRange, updateBookmark, updateStickyNote,
   type AnchorInput, type Bookmark, type Highlight, type HighlightColor, type NoteAnnotations, type StickyNote, type TextLocation,
 } from '@/lib/annotations'
 
@@ -15,9 +15,9 @@ interface SelectionState {
   y: number
 }
 
-export type AnnotationTab = 'highlights' | 'bookmarks' | 'sticky' | 'memo'
+export type AnnotationTab = 'highlights' | 'bookmarks' | 'sticky'
 
-export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: Ref<NoteMeta | undefined>) {
+export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: Ref<NoteMeta | undefined>, bodyRevision: Readonly<Ref<string | undefined>>) {
   const state = reactive({
     open: false,
     tab: 'highlights' as AnnotationTab,
@@ -25,8 +25,6 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     loading: false,
     busy: false,
     notice: '',
-    memoDraft: '',
-    memoStatus: '',
     activeHighlight: '',
   })
   const selection = ref<SelectionState | null>(null)
@@ -34,9 +32,9 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
   const stickyAnchors = ref<Record<string, { x: number; y: number }>>({})
   const floatingStickyNotes = computed(() => state.data?.stickyNotes.filter(item => stickyAnchors.value[item.id]) ?? [])
   const selectionColor = ref<HighlightColor>('yellow')
-  let memoTimer: ReturnType<typeof setTimeout> | undefined
   let noticeTimer: ReturnType<typeof setTimeout> | undefined
   let refreshController: AbortController | undefined
+  let loadedRevision: string | undefined
 
   const loggedIn = computed(() => Boolean(session.user))
 
@@ -86,11 +84,10 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     applyMarkdownHighlights(element)
     const data = state.data
     if (!data) return
-    // 每个页面只用自己正在显示的正文定位。读文章不会写回或丢弃原始标注。
-    const index = indexArticle(element)
+    const toDOMRange = mapArticleOffsets(indexArticle(element).text)
     const resolved = new Map<string, TextLocation>()
     for (const item of [...data.highlights, ...data.bookmarks, ...data.stickyNotes]) {
-      const range = locate(index, item.quote, item.prefix, item.suffix)
+      const range = toDOMRange(item.location)
       if (range) resolved.set(item.id, range)
     }
     locations.value = resolved
@@ -106,7 +103,13 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     const userID = session.user?.id
     const noteID = note.value?.id
     const element = article.value
-    if (!userID || !noteID || !element) {
+    const revision = bodyRevision.value
+    if (revision !== loadedRevision) {
+      state.data = null
+      locations.value = new Map()
+      stickyAnchors.value = {}
+    }
+    if (!userID || !noteID || !element || !revision) {
       state.data = null
       state.loading = false
       paint()
@@ -116,15 +119,22 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     refreshController = controller
     const isCurrent = () => !controller.signal.aborted
       && session.user?.id === userID && note.value?.id === noteID && article.value === element
+      && bodyRevision.value === revision
     state.loading = true
     try {
-      const data = await loadAnnotations(noteID, controller.signal)
+      const data = await loadAnnotations(noteID, revision, controller.signal)
       if (!isCurrent()) return
       state.data = data
-      state.memoDraft = data.memo?.body || ''
+      loadedRevision = revision
       paint()
     } catch (reason) {
-      if (isCurrent() && reason instanceof ApiError && reason.status === 401) state.data = null
+      if (isCurrent()) {
+        if (reason instanceof ApiError && reason.status === 401) {
+          reset()
+        } else {
+          notify(reason instanceof Error ? reason.message : '读取标注失败')
+        }
+      }
     } finally {
       if (refreshController === controller) state.loading = false
     }
@@ -145,10 +155,9 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     stickyAnchors.value = {}
     activeRange = null
     state.data = null
+    loadedRevision = undefined
     state.open = false
     state.notice = ''
-    state.memoDraft = ''
-    state.memoStatus = ''
     selection.value = null
   }
 
@@ -217,11 +226,12 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
 
   async function saveSelection() {
     const data = state.data
-    if (!note.value || !data || !selection.value) return
+    const revision = bodyRevision.value
+    if (!note.value || !data || !selection.value || !revision) return
     state.busy = true
     try {
       const created = await createHighlight(
-        note.value.id, selection.value.anchor, selectionColor.value, '', article.value?.dataset.sourceRevision || '',
+        note.value.id, selection.value.anchor, selectionColor.value, '', revision,
       )
       if (state.data !== data) return
       data.highlights.push(created)
@@ -325,7 +335,8 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
 
   async function addBookmark() {
     const data = state.data
-    if (!note.value || !data || !article.value) return
+    const revision = bodyRevision.value
+    if (!note.value || !data || !article.value || !revision) return
     const block = blockAtViewport()
     if (!block) return
     state.busy = true
@@ -343,7 +354,6 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
       const position = total > 0 ? Math.min(1, Math.max(0, top / total)) : 0
       const anchor = anchorForTextRange(textIndex, start, start + 120, heading)
       if (!anchor) return
-      const revision = article.value.dataset.sourceRevision || ''
       const existing = data.bookmarks[0]
       if (existing) {
         const updated = await updateBookmark(existing.id, {
@@ -351,7 +361,7 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
           heading: anchor.heading, position, revision,
         })
         if (state.data !== data) return
-        Object.assign(existing, updated)
+        Object.assign(existing, updated, { location: updated.location })
         notify('已更新阅读位置')
       } else {
         const created = await createBookmark(note.value.id, anchor, heading, position, revision)
@@ -380,28 +390,6 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     window.scrollTo({ top: target.position * total, behavior: 'smooth' })
   }
 
-  function scheduleTextSave() {
-    const noteID = note.value?.id
-    const userID = session.user?.id
-    if (!noteID || !userID) return
-    const body = state.memoDraft
-    clearTimeout(memoTimer)
-    state.memoStatus = '正在输入…'
-    memoTimer = setTimeout(async () => {
-      if (session.user?.id !== userID) return
-      const isCurrent = () => session.user?.id === userID && note.value?.id === noteID && state.memoDraft === body
-      try {
-        const memo = await saveMemo(noteID, body)
-        if (!isCurrent()) return
-        if (state.data) state.data.memo = memo
-        state.memoStatus = '已自动保存'
-      } catch (reason) {
-        if (isCurrent()) state.memoStatus = reason instanceof Error ? reason.message : '保存失败'
-      }
-    }, 700)
-  }
-
-
   const stickyTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   async function addSticky(anchor?: AnchorInput, body = '新便条') {
@@ -409,7 +397,8 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
       notify('登录后才能新建便条')
       return
     }
-    if (!note.value) return
+    const revision = bodyRevision.value
+    if (!note.value || !revision) return
     const data = state.data
     if (!data) {
       notify('标注还在加载，请稍后再试')
@@ -417,7 +406,7 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
     }
     state.busy = true
     try {
-      const created = await createStickyNote(note.value.id, body, 'yellow', anchor, article.value?.dataset.sourceRevision || '')
+      const created = await createStickyNote(note.value.id, body, 'yellow', revision, anchor)
       if (state.data !== data) return
       data.stickyNotes.push(created)
       paint()
@@ -567,7 +556,7 @@ export function useNoteAnnotations(article: Ref<HTMLElement | undefined>, note: 
   return {
     state, selection, selectionColor, locations, stickyAnchors, floatingStickyNotes, loggedIn, repaint,
     refresh, reset, onMouseUp, saveSelection, cancelSelection, removeHighlight,
-    removeBookmark, openHighlight, onArticleClick, addBookmark, jumpToBookmark, scheduleTextSave,
+    removeBookmark, openHighlight, onArticleClick, addBookmark, jumpToBookmark,
     addSticky, setStickyBody, scheduleStickySave, recolorSticky, removeSticky, hoverSticky, jumpToSticky,
     openDrawer, closeDrawer,
   }

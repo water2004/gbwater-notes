@@ -130,8 +130,7 @@ CREATE TABLE IF NOT EXISTS user_favorites (
 
 CREATE INDEX IF NOT EXISTS user_favorites_recent_idx ON user_favorites (user_id, created_at DESC);
 -- 用户标注：划线（含批注）、位置书签、单篇私人便条。
--- 锚点用「原文引用 + 前后文 + 标题」保存。读者打开不同版本的正文时，
--- 客户端据此计算显示位置，保留数据库里的原始锚点。
+-- 原始引文和上下文独立于各正文版本的定位结果。
 CREATE TABLE IF NOT EXISTS user_highlights (
     id         TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -142,12 +141,13 @@ CREATE TABLE IF NOT EXISTS user_highlights (
     heading    TEXT NOT NULL DEFAULT '',
     color      TEXT NOT NULL DEFAULT 'yellow' CHECK (color IN ('yellow', 'green', 'blue', 'pink')),
     comment    TEXT NOT NULL DEFAULT '',
-    revision   TEXT NOT NULL DEFAULT '',
+    revision   TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS user_highlights_user_idx ON user_highlights (user_id, note_id, created_at);
+CREATE INDEX IF NOT EXISTS user_highlights_recent_idx ON user_highlights (user_id, updated_at DESC, id);
 
 CREATE TABLE IF NOT EXISTS user_bookmarks (
     id         TEXT PRIMARY KEY,
@@ -159,21 +159,14 @@ CREATE TABLE IF NOT EXISTS user_bookmarks (
     suffix     TEXT NOT NULL DEFAULT '',
     heading    TEXT NOT NULL DEFAULT '',
     position   DOUBLE PRECISION NOT NULL DEFAULT 0,
-    revision   TEXT NOT NULL DEFAULT '',
+    revision   TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS user_bookmarks_user_idx ON user_bookmarks (user_id, note_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS user_bookmarks_recent_idx ON user_bookmarks (user_id, updated_at DESC, id);
 
-CREATE TABLE IF NOT EXISTS user_memos (
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    note_id    TEXT NOT NULL,
-    body       TEXT NOT NULL DEFAULT '',
-    updated_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (user_id, note_id)
-);
--- 便条：一篇笔记下可以有多张卡片，与「笔记」（单篇长文）区分开。
 CREATE TABLE IF NOT EXISTS user_sticky_notes (
     id         TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -184,13 +177,33 @@ CREATE TABLE IF NOT EXISTS user_sticky_notes (
     prefix     TEXT NOT NULL DEFAULT '',
     suffix     TEXT NOT NULL DEFAULT '',
     heading    TEXT NOT NULL DEFAULT '',
-    revision   TEXT NOT NULL DEFAULT '',
+    revision   TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS user_sticky_notes_user_idx ON user_sticky_notes (user_id, note_id, created_at DESC);
--- 便条锚定在正文位置上：与划线一样用引用 + 上下文 + revision 定位。
+CREATE INDEX IF NOT EXISTS user_highlights_note_idx ON user_highlights (note_id);
+CREATE INDEX IF NOT EXISTS user_bookmarks_note_idx ON user_bookmarks (note_id);
+CREATE INDEX IF NOT EXISTS user_sticky_notes_note_idx ON user_sticky_notes (note_id);
+
+CREATE TABLE IF NOT EXISTS annotation_articles (
+    note_id   TEXT NOT NULL,
+    revision  TEXT NOT NULL CHECK (revision ~ '^[0-9a-f]{32}$'),
+    body_text TEXT NOT NULL,
+    PRIMARY KEY (note_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS annotation_positions (
+    note_id    TEXT NOT NULL,
+    revision   TEXT NOT NULL,
+    anchor_key TEXT NOT NULL,
+    location   INT4RANGE,
+    CHECK (location IS NULL OR (NOT isempty(location) AND NOT lower_inf(location) AND NOT upper_inf(location) AND lower(location) >= 0)),
+    PRIMARY KEY (note_id, revision, anchor_key),
+    FOREIGN KEY (note_id, revision) REFERENCES annotation_articles (note_id, revision) ON DELETE CASCADE
+);
+
 -- 用户个性化设置（阅读字号、页宽、行距、字体等），JSON 存一份避免频繁加列。
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

@@ -67,11 +67,11 @@ func NewServer(config Config) (*Server, error) {
 		authPolicy:  authPolicy,
 		limiter:     limiter,
 		history:     NewHistory(db),
-		builds:      NewBuildManager(config.Root, config.DataDir(), config.BuildTimeout, config.BasePath),
 		search:      NewSearchClient(config.MeiliURL, config.MeiliKey),
 		mux:         http.NewServeMux(),
 	}
 	server.store.record = server.history.RecordRevision
+	server.builds = NewBuildManager(config.Root, config.DataDir(), config.BuildTimeout, config.BasePath, server.prepareAnnotationPublication)
 	server.builds.SetOnFinish(func(status BuildStatus) {
 		if err := server.history.RecordBuild(status); err != nil {
 			log.Printf("record build history: %v", err)
@@ -198,7 +198,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/me/bookmarks", s.requireUser(s.createBookmark))
 	s.mux.HandleFunc("PATCH /api/me/bookmarks/{id}", s.requireUser(s.updateBookmark))
 	s.mux.HandleFunc("DELETE /api/me/bookmarks/{id}", s.requireUser(s.deleteBookmark))
-	s.mux.HandleFunc("PUT /api/me/memo", s.requireUser(s.saveMemo))
 	s.mux.HandleFunc("GET /api/me/settings", s.requireUser(s.getSettings))
 	s.mux.HandleFunc("PUT /api/me/settings", s.requireUser(s.saveSettings))
 	s.mux.HandleFunc("POST /api/me/sticky-notes", s.requireUser(s.createStickyNote))
